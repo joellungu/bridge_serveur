@@ -11,8 +11,8 @@ import jakarta.ws.rs.ext.Provider;
 import org.middleware.models.ApiClient;
 import org.middleware.service.ClientTokenService;
 
-@Provider
-@Priority(Priorities.AUTHENTICATION)
+// @Provider
+// @Priority(Priorities.AUTHENTICATION)
 @ApplicationScoped
 public class ClientAuthFilter implements ContainerRequestFilter {
 
