@@ -117,6 +117,7 @@ public class InvoiceResource {
                     if (code.get("errorDesc") != null) {
                         invoiceEntity.errorCode = code.get("errorCode").asText();
                         invoiceEntity.errorDesc = code.get("errorDesc").asText();
+                        invoice.status = "PROBLEM";
                     } else {
                         //"total":0.0,"curTotal":0.0,"vtotal":0.0
                         invoiceEntity.uid = code.get("uid").asText();
@@ -130,6 +131,7 @@ public class InvoiceResource {
                             //
                             invoiceEntity.errorCode = jn2.get("errorCode").asText();
                             invoiceEntity.errorDesc = jn2.get("errorDesc").asText();
+                            invoice.status = "PROBLEM";
                         } else {
                             invoiceEntity.qrCode = jn2.get("qrCode").asText();
                             invoiceEntity.dateTime = jn2.get("dateTime").asText();
@@ -167,6 +169,7 @@ public class InvoiceResource {
                 if (code.get("errorDesc") != null) {
                     invoice.errorCode = code.get("errorCode").asText();
                     invoice.errorDesc = code.get("errorDesc").asText();
+                    invoice.status = "PROBLEM";
                 } else {
                     //"total":0.0,"curTotal":0.0,"vtotal":0.0
                     invoice.uid = code.get("uid").asText();
@@ -179,6 +182,7 @@ public class InvoiceResource {
                         //
                         invoice.errorCode = jn2.get("errorCode").asText();
                         invoice.errorDesc = jn2.get("errorDesc").asText();
+                        invoice.status = "PROBLEM";
                         //
                     } else {
                         invoice.qrCode = jn2.get("qrCode").asText();

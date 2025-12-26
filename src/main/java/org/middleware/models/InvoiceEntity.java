@@ -30,7 +30,7 @@ public class InvoiceEntity extends PanacheEntityBase {
     public String uid;
 
     // === CHAMPS OBLIGATOIRES DE BASE ===
-    @Column(name = "nif", length = 13)
+    @Column(name = "nif", length = 200)
     public String nif;
 
     @Column(name = "rn")
@@ -42,7 +42,7 @@ public class InvoiceEntity extends PanacheEntityBase {
     @Column(name = "mode", length = 3)
     public String mode;
 
-    @Column(name = "isf", length = 10)
+    @Column(name = "isf", length = 200)
     public String isf;
 
     @Column(name = "type", length = 2)
