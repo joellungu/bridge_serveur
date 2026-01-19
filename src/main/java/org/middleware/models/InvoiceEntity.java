@@ -143,8 +143,10 @@ public class InvoiceEntity extends PanacheEntityBase {
     @Column(name = "dgi_token", columnDefinition = "text")
     public String dgiToken;
 
+    // === GESTION DES ERREURS ===
+    @Column(name = "error_code", length = 100)
     public String errorCode;
-    //
+
     @Column(name = "error_desc", columnDefinition = "text")
     public String errorDesc;
 
