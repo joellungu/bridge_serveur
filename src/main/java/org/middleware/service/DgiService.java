@@ -1,14 +1,5 @@
 package org.middleware.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import jakarta.enterprise.context.ApplicationScoped;
-import org.eclipse.microprofile.faulttolerance.Retry;
-import org.middleware.dto.DgiResponse;
-import org.middleware.models.InvoiceEntity;
-
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.URI;
@@ -20,6 +11,17 @@ import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
+import org.eclipse.microprofile.faulttolerance.Retry;
+import org.middleware.dto.DgiResponse;
+import org.middleware.models.InvoiceEntity;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+
+import jakarta.enterprise.context.ApplicationScoped;
 
 @ApplicationScoped
 public class DgiService {
@@ -77,6 +79,18 @@ public class DgiService {
             invoice.total = extractBigDecimal(submissionResponse, "total");
             invoice.curTotal = extractBigDecimal(submissionResponse, "curTotal");
             invoice.vtotal = extractBigDecimal(submissionResponse, "vtotal");
+            
+            // ✅ VÉRIFICATION CRITIQUE: L'UID doit être présent pour valider PHASE1
+            if (invoice.uid == null || invoice.uid.trim().isEmpty()) {
+                LOG.warning("PHASE 1 échouée: UID manquant dans la réponse DGI");
+                invoice.status = "PENDING";
+                invoice.errorCode = "MISSING_UID_RESPONSE";
+                invoice.errorDesc = "La DGI n'a pas retourné d'UID. La normalisation PHASE 1 a échoué.";
+                invoice.persist();
+                return invoice;
+            }
+            
+            // UID reçu avec succès - PHASE 1 validée
             invoice.status = "PHASE1";
             invoice.errorCode = null;
             invoice.errorDesc = null;
@@ -185,10 +199,23 @@ public class DgiService {
         // PHASE 1: Soumission
         invoice = submitInvoicePhase1(invoice, dgiToken);
         
-        // Si Phase 1 échoue, retourner l'entité avec l'erreur
-        if (!("PHASE1".equals(invoice.status))) {
+        // Vérification stricte: Phase 1 doit être PHASE1 ET avoir un UID valide
+        if (!"PHASE1".equals(invoice.status)) {
+            LOG.warning("PHASE 1 échouée - Statut: " + invoice.status);
             return invoice;
         }
+        
+        // Double vérification de l'UID avant Phase 2
+        if (invoice.uid == null || invoice.uid.trim().isEmpty()) {
+            LOG.warning("Impossible de continuer vers PHASE 2: UID manquant");
+            invoice.status = "PENDING";
+            invoice.errorCode = "PHASE1_INCOMPLETE";
+            invoice.errorDesc = "La PHASE 1 est incomplète: UID non reçu de la DGI";
+            invoice.persist();
+            return invoice;
+        }
+        
+        LOG.info("PHASE 1 réussie avec UID=" + invoice.uid + " - Passage à PHASE 2");
         
         // PHASE 2: Confirmation
         return confirmInvoicePhase2(invoice, dgiToken);

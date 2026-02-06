@@ -1,5 +1,11 @@
 package org.middleware.service;
 
+import jakarta.enterprise.context.ApplicationScoped;
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.middleware.dto.ExcelInvoiceRow;
+import org.middleware.models.Entreprise;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -11,28 +17,10 @@ import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.apache.poi.ss.usermodel.BorderStyle;
-import org.apache.poi.ss.usermodel.Cell;
-import org.apache.poi.ss.usermodel.CellStyle;
-import org.apache.poi.ss.usermodel.CellType;
-import org.apache.poi.ss.usermodel.DataFormat;
-import org.apache.poi.ss.usermodel.FillPatternType;
-import org.apache.poi.ss.usermodel.Font;
-import org.apache.poi.ss.usermodel.HorizontalAlignment;
-import org.apache.poi.ss.usermodel.IndexedColors;
-import org.apache.poi.ss.usermodel.Row;
-import org.apache.poi.ss.usermodel.Sheet;
-import org.apache.poi.ss.usermodel.Workbook;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.middleware.dto.ExcelInvoiceRow;
-import org.middleware.models.Entreprise;
-
-import jakarta.enterprise.context.ApplicationScoped;
-
 /**
- * Service pour traiter les fichiers Excel de factures.
+ * Service pour traiter les fichiers Excel de factures conformes aux spécifications SFE.
  * - Lit le fichier Excel uploadé
- * - Normalise et valide les données
+ * - Normalise et valide les données selon les règles SFE
  * - Ajoute les informations de l'entreprise
  * - Retourne un fichier Excel enrichi
  */
@@ -41,19 +29,22 @@ public class ExcelInvoiceService {
 
     private static final Logger LOG = Logger.getLogger(ExcelInvoiceService.class.getName());
 
-    // Colonnes d'entrée (fournies par l'utilisateur)
+    // Colonnes d'entrée (fournies par l'utilisateur) - 15 colonnes
     private static final String[] INPUT_HEADERS = {
         "rn", "type", "clientNif", "clientName", 
         "itemCode", "itemName", "itemPrice", "itemQuantity", 
-        "itemTaxGroup", "currency", "mode"
+        "itemTaxGroup", "itemArticleType", "unitPriceMode",
+        "currency", "unit", "specificTaxAmount", "mode"
     };
 
-    // Colonnes de sortie (ajoutées par le système)
+    // Colonnes de sortie (toutes les colonnes) - 24 colonnes
     private static final String[] OUTPUT_HEADERS = {
         "rn", "type", "clientNif", "clientName", 
         "itemCode", "itemName", "itemPrice", "itemQuantity", 
-        "itemTaxGroup", "currency", "mode",
-        "nif", "isf", "companyName", "subtotal", "total", "status", "errorMessage"
+        "itemTaxGroup", "itemArticleType", "unitPriceMode",
+        "currency", "unit", "specificTaxAmount", "mode",
+        "nif", "isf", "companyName", "taxRate", "subtotal", "taxAmount", "total", 
+        "status", "errorMessage"
     };
 
     /**
@@ -64,13 +55,15 @@ public class ExcelInvoiceService {
      * @return byte[] Le fichier Excel enrichi
      */
     public byte[] processExcelFile(InputStream inputStream, Entreprise entreprise) throws IOException {
-        LOG.info("=== Début du traitement Excel pour: " + entreprise.nom + " ===");
+        LOG.info("=== Début du traitement Excel SFE pour: " + entreprise.nom + " ===");
         
         List<ExcelInvoiceRow> rows = readExcelFile(inputStream);
         LOG.info("Lignes lues: " + rows.size());
         
         // Enrichir chaque ligne avec les données de l'entreprise
         Set<String> seenRns = new HashSet<>();
+        int validCount = 0, invalidCount = 0, duplicateCount = 0;
+        
         for (ExcelInvoiceRow row : rows) {
             // Ajouter les infos de l'entreprise
             row.nif = entreprise.nif;
@@ -81,13 +74,20 @@ public class ExcelInvoiceService {
             row.normalize();
             
             // Vérifier les doublons
-            if (seenRns.contains(row.rn)) {
+            if (row.rn != null && seenRns.contains(row.rn)) {
                 row.status = "DUPLICATE";
                 row.errorMessage = "Numéro de facture en double dans le fichier";
+                duplicateCount++;
             } else {
-                seenRns.add(row.rn);
-                // Valider la ligne
-                row.validate();
+                if (row.rn != null) {
+                    seenRns.add(row.rn);
+                }
+                // Valider la ligne selon les règles SFE
+                if (row.validate()) {
+                    validCount++;
+                } else {
+                    invalidCount++;
+                }
             }
             
             // Calculer les totaux si valide
@@ -96,11 +96,10 @@ public class ExcelInvoiceService {
             }
         }
         
-        // Générer le fichier Excel de sortie
-        byte[] outputFile = writeExcelFile(rows);
-        LOG.info("=== Traitement Excel terminé. Lignes traitées: " + rows.size() + " ===");
+        LOG.info("=== Traitement terminé: " + validCount + " valides, " + invalidCount + " invalides, " + duplicateCount + " doublons ===");
         
-        return outputFile;
+        // Générer le fichier Excel de sortie
+        return writeExcelFile(rows);
     }
 
     /**
@@ -135,11 +134,12 @@ public class ExcelInvoiceService {
     }
 
     /**
-     * Parse une ligne Excel en ExcelInvoiceRow
+     * Parse une ligne Excel en ExcelInvoiceRow avec les nouvelles colonnes SFE
      */
     private ExcelInvoiceRow parseRow(Row row) {
         ExcelInvoiceRow invoiceRow = new ExcelInvoiceRow();
         
+        // Colonnes d'entrée (15 colonnes)
         invoiceRow.rn = getStringValue(row.getCell(0));
         invoiceRow.type = getStringValue(row.getCell(1));
         invoiceRow.clientNif = getStringValue(row.getCell(2));
@@ -149,8 +149,12 @@ public class ExcelInvoiceService {
         invoiceRow.itemPrice = getBigDecimalValue(row.getCell(6));
         invoiceRow.itemQuantity = getBigDecimalValue(row.getCell(7));
         invoiceRow.itemTaxGroup = getStringValue(row.getCell(8));
-        invoiceRow.currency = getStringValue(row.getCell(9));
-        invoiceRow.mode = getStringValue(row.getCell(10));
+        invoiceRow.itemArticleType = getStringValue(row.getCell(9));
+        invoiceRow.unitPriceMode = getStringValue(row.getCell(10));
+        invoiceRow.currency = getStringValue(row.getCell(11));
+        invoiceRow.unit = getStringValue(row.getCell(12));
+        invoiceRow.specificTaxAmount = getBigDecimalValue(row.getCell(13));
+        invoiceRow.mode = getStringValue(row.getCell(14));
         
         return invoiceRow;
     }
@@ -170,6 +174,7 @@ public class ExcelInvoiceService {
             CellStyle invalidStyle = createInvalidStyle(workbook);
             CellStyle duplicateStyle = createDuplicateStyle(workbook);
             CellStyle numberStyle = createNumberStyle(workbook);
+            CellStyle percentStyle = createPercentStyle(workbook);
             
             // En-têtes
             Row headerRow = sheet.createRow(0);
@@ -191,7 +196,7 @@ public class ExcelInvoiceService {
                     default -> invalidStyle;
                 };
                 
-                // Colonnes d'entrée
+                // Colonnes d'entrée (15)
                 createCell(row, 0, invoiceRow.rn, rowStyle);
                 createCell(row, 1, invoiceRow.type, rowStyle);
                 createCell(row, 2, invoiceRow.clientNif, rowStyle);
@@ -201,17 +206,23 @@ public class ExcelInvoiceService {
                 createNumericCell(row, 6, invoiceRow.itemPrice, numberStyle);
                 createNumericCell(row, 7, invoiceRow.itemQuantity, numberStyle);
                 createCell(row, 8, invoiceRow.itemTaxGroup, rowStyle);
-                createCell(row, 9, invoiceRow.currency, rowStyle);
-                createCell(row, 10, invoiceRow.mode, rowStyle);
+                createCell(row, 9, invoiceRow.itemArticleType, rowStyle);
+                createCell(row, 10, invoiceRow.unitPriceMode, rowStyle);
+                createCell(row, 11, invoiceRow.currency, rowStyle);
+                createCell(row, 12, invoiceRow.unit, rowStyle);
+                createNumericCell(row, 13, invoiceRow.specificTaxAmount, numberStyle);
+                createCell(row, 14, invoiceRow.mode, rowStyle);
                 
-                // Colonnes ajoutées
-                createCell(row, 11, invoiceRow.nif, rowStyle);
-                createCell(row, 12, invoiceRow.isf, rowStyle);
-                createCell(row, 13, invoiceRow.companyName, rowStyle);
-                createNumericCell(row, 14, invoiceRow.subtotal, numberStyle);
-                createNumericCell(row, 15, invoiceRow.total, numberStyle);
-                createCell(row, 16, invoiceRow.status, rowStyle);
-                createCell(row, 17, invoiceRow.errorMessage, rowStyle);
+                // Colonnes ajoutées (9)
+                createCell(row, 15, invoiceRow.nif, rowStyle);
+                createCell(row, 16, invoiceRow.isf, rowStyle);
+                createCell(row, 17, invoiceRow.companyName, rowStyle);
+                createNumericCell(row, 18, invoiceRow.taxRate, percentStyle);
+                createNumericCell(row, 19, invoiceRow.subtotal, numberStyle);
+                createNumericCell(row, 20, invoiceRow.taxAmount, numberStyle);
+                createNumericCell(row, 21, invoiceRow.total, numberStyle);
+                createCell(row, 22, invoiceRow.status, rowStyle);
+                createCell(row, 23, invoiceRow.errorMessage, rowStyle);
             }
             
             // Ajuster la largeur des colonnes
@@ -219,13 +230,16 @@ public class ExcelInvoiceService {
                 sheet.autoSizeColumn(i);
             }
             
+            // Ajouter la feuille de référence des groupes TVA
+            addTaxGroupReferenceSheet(workbook);
+            
             workbook.write(outputStream);
             return outputStream.toByteArray();
         }
     }
 
     /**
-     * Génère un fichier Excel template vide
+     * Génère un fichier Excel template vide avec les spécifications SFE
      */
     public byte[] generateTemplate() throws IOException {
         try (Workbook workbook = new XSSFWorkbook();
@@ -235,37 +249,91 @@ public class ExcelInvoiceService {
             
             // Style pour les en-têtes
             CellStyle headerStyle = createHeaderStyle(workbook);
+            CellStyle requiredStyle = createRequiredHeaderStyle(workbook);
             
             // En-têtes (colonnes d'entrée uniquement)
             Row headerRow = sheet.createRow(0);
+            String[] requiredCols = {"rn", "itemCode", "itemName", "itemPrice", "itemQuantity"};
+            
             for (int i = 0; i < INPUT_HEADERS.length; i++) {
                 Cell cell = headerRow.createCell(i);
                 cell.setCellValue(INPUT_HEADERS[i]);
-                cell.setCellStyle(headerStyle);
+                
+                // Style différent pour les colonnes obligatoires
+                boolean isRequired = false;
+                for (String req : requiredCols) {
+                    if (req.equals(INPUT_HEADERS[i])) {
+                        isRequired = true;
+                        break;
+                    }
+                }
+                cell.setCellStyle(isRequired ? requiredStyle : headerStyle);
             }
             
-            // Ligne d'exemple
-            Row exampleRow = sheet.createRow(1);
-            exampleRow.createCell(0).setCellValue("FAC-2026-001");
-            exampleRow.createCell(1).setCellValue("FN");
-            exampleRow.createCell(2).setCellValue("A1234567K");
-            exampleRow.createCell(3).setCellValue("Client Exemple");
-            exampleRow.createCell(4).setCellValue("ART001");
-            exampleRow.createCell(5).setCellValue("Produit Test");
-            exampleRow.createCell(6).setCellValue(1000.00);
-            exampleRow.createCell(7).setCellValue(2);
-            exampleRow.createCell(8).setCellValue("A");
-            exampleRow.createCell(9).setCellValue("CDF");
-            exampleRow.createCell(10).setCellValue("0");
+            // Ligne d'exemple 1: Bien avec TVA 16%
+            Row exampleRow1 = sheet.createRow(1);
+            exampleRow1.createCell(0).setCellValue("FAC-2026-001");
+            exampleRow1.createCell(1).setCellValue("FN");
+            exampleRow1.createCell(2).setCellValue("A1234567K");
+            exampleRow1.createCell(3).setCellValue("Client Exemple");
+            exampleRow1.createCell(4).setCellValue("PROD-001");
+            exampleRow1.createCell(5).setCellValue("Ordinateur portable");
+            exampleRow1.createCell(6).setCellValue(500000);
+            exampleRow1.createCell(7).setCellValue(2);
+            exampleRow1.createCell(8).setCellValue("B");      // Taxable 16%
+            exampleRow1.createCell(9).setCellValue("BIE");    // Bien
+            exampleRow1.createCell(10).setCellValue("HT");
+            exampleRow1.createCell(11).setCellValue("CDF");
+            exampleRow1.createCell(12).setCellValue("pcs");
+            exampleRow1.createCell(13).setCellValue(0);
+            exampleRow1.createCell(14).setCellValue("0");
+            
+            // Ligne d'exemple 2: Service avec TVA 8%
+            Row exampleRow2 = sheet.createRow(2);
+            exampleRow2.createCell(0).setCellValue("FAC-2026-002");
+            exampleRow2.createCell(1).setCellValue("FN");
+            exampleRow2.createCell(2).setCellValue("");
+            exampleRow2.createCell(3).setCellValue("Client Sans NIF");
+            exampleRow2.createCell(4).setCellValue("SERV-001");
+            exampleRow2.createCell(5).setCellValue("Consultation IT");
+            exampleRow2.createCell(6).setCellValue(150000);
+            exampleRow2.createCell(7).setCellValue(5);
+            exampleRow2.createCell(8).setCellValue("C");      // Taxable 8%
+            exampleRow2.createCell(9).setCellValue("SER");    // Service
+            exampleRow2.createCell(10).setCellValue("HT");
+            exampleRow2.createCell(11).setCellValue("CDF");
+            exampleRow2.createCell(12).setCellValue("heure");
+            exampleRow2.createCell(13).setCellValue(0);
+            exampleRow2.createCell(14).setCellValue("0");
+            
+            // Ligne d'exemple 3: Taxe (groupe L ou N)
+            Row exampleRow3 = sheet.createRow(3);
+            exampleRow3.createCell(0).setCellValue("FAC-2026-003");
+            exampleRow3.createCell(1).setCellValue("FN");
+            exampleRow3.createCell(2).setCellValue("");
+            exampleRow3.createCell(3).setCellValue("");
+            exampleRow3.createCell(4).setCellValue("TAX-001");
+            exampleRow3.createCell(5).setCellValue("Prélèvement sur vente");
+            exampleRow3.createCell(6).setCellValue(10000);
+            exampleRow3.createCell(7).setCellValue(1);
+            exampleRow3.createCell(8).setCellValue("L");      // Prélèvements
+            exampleRow3.createCell(9).setCellValue("TAX");    // Taxes (obligatoire pour L et N)
+            exampleRow3.createCell(10).setCellValue("HT");
+            exampleRow3.createCell(11).setCellValue("CDF");
+            exampleRow3.createCell(12).setCellValue("pcs");
+            exampleRow3.createCell(13).setCellValue(0);
+            exampleRow3.createCell(14).setCellValue("0");
             
             // Ajuster la largeur
             for (int i = 0; i < INPUT_HEADERS.length; i++) {
                 sheet.autoSizeColumn(i);
             }
             
-            // Ajouter une feuille d'instructions
-            Sheet instructionSheet = workbook.createSheet("Instructions");
-            addInstructions(instructionSheet, workbook);
+            // Ajouter la feuille d'instructions
+            addInstructionsSheet(workbook);
+            
+            // Ajouter la feuille de référence des groupes TVA
+            addTaxGroupReferenceSheet(workbook);
             
             workbook.write(outputStream);
             return outputStream.toByteArray();
@@ -273,27 +341,43 @@ public class ExcelInvoiceService {
     }
 
     /**
-     * Ajoute une feuille d'instructions
+     * Ajoute une feuille d'instructions détaillées
      */
-    private void addInstructions(Sheet sheet, Workbook workbook) {
+    private void addInstructionsSheet(Workbook workbook) {
+        Sheet sheet = workbook.createSheet("Instructions");
+        
         CellStyle boldStyle = workbook.createCellStyle();
         Font boldFont = workbook.createFont();
         boldFont.setBold(true);
         boldStyle.setFont(boldFont);
         
+        CellStyle requiredStyle = workbook.createCellStyle();
+        Font requiredFont = workbook.createFont();
+        requiredFont.setBold(true);
+        requiredFont.setColor(IndexedColors.RED.getIndex());
+        requiredStyle.setFont(requiredFont);
+        
         String[][] instructions = {
             {"Colonne", "Description", "Obligatoire", "Valeurs possibles"},
-            {"rn", "Numéro de référence de la facture", "OUI", "Texte unique"},
+            {"rn", "Numéro de référence de la facture", "OUI *", "Texte unique (ex: FAC-2026-001)"},
             {"type", "Type de facture", "NON", "FN (Normal), FA (Avoir), FP (Proforma)"},
             {"clientNif", "NIF du client", "NON", "Format: A1234567K"},
             {"clientName", "Nom du client", "NON", "Texte"},
-            {"itemCode", "Code de l'article", "NON", "Texte"},
-            {"itemName", "Nom de l'article", "NON", "Texte"},
-            {"itemPrice", "Prix unitaire", "OUI", "Nombre décimal"},
-            {"itemQuantity", "Quantité", "OUI", "Nombre décimal"},
-            {"itemTaxGroup", "Groupe de TVA", "NON", "A (16%), B (8%), C (0%), D (Exonéré)"},
-            {"currency", "Devise", "NON", "CDF, USD"},
-            {"mode", "Mode de facturation", "NON", "0 (normal), 1 (spécial)"}
+            {"itemCode", "Code de l'article", "OUI *", "Texte unique (obligatoire SFE)"},
+            {"itemName", "Nom de l'article", "OUI *", "Texte"},
+            {"itemPrice", "Prix unitaire", "OUI *", "Nombre décimal > 0"},
+            {"itemQuantity", "Quantité", "OUI *", "Nombre décimal > 0"},
+            {"itemTaxGroup", "Groupe de TVA (SFE)", "NON", "A-N (voir feuille 'Groupes TVA')"},
+            {"itemArticleType", "Type d'article (SFE)", "NON", "BIE (Bien), SER (Service), TAX (Taxes)"},
+            {"unitPriceMode", "Mode de prix", "NON", "HT (Hors Taxe), TTC (Toutes Taxes Comprises)"},
+            {"currency", "Devise", "NON", "CDF, USD, DH"},
+            {"unit", "Unité de mesure", "NON", "pcs, kg, heure, etc."},
+            {"specificTaxAmount", "Montant taxe spécifique", "NON", "Nombre décimal (par unité)"},
+            {"mode", "Mode de facturation", "NON", "0 (normal), 1 (spécial)"},
+            {"", "", "", ""},
+            {"⚠️ CONTRAINTE SFE IMPORTANTE:", "", "", ""},
+            {"", "Type TAX uniquement autorisé pour groupes L et N", "", ""},
+            {"", "Groupes L et N exigent obligatoirement type TAX", "", ""}
         };
         
         for (int i = 0; i < instructions.length; i++) {
@@ -301,8 +385,55 @@ public class ExcelInvoiceService {
             for (int j = 0; j < instructions[i].length; j++) {
                 Cell cell = row.createCell(j);
                 cell.setCellValue(instructions[i][j]);
-                if (i == 0) {
-                    cell.setCellStyle(boldStyle);
+                if (i == 0 || instructions[i][2].contains("*")) {
+                    cell.setCellStyle(i == 0 ? boldStyle : (j == 2 ? requiredStyle : null));
+                }
+            }
+        }
+        
+        for (int i = 0; i < 4; i++) {
+            sheet.autoSizeColumn(i);
+        }
+    }
+
+    /**
+     * Ajoute une feuille de référence des groupes TVA SFE
+     */
+    private void addTaxGroupReferenceSheet(Workbook workbook) {
+        Sheet sheet = workbook.createSheet("Groupes TVA SFE");
+        
+        CellStyle headerStyle = createHeaderStyle(workbook);
+        
+        String[][] taxGroups = {
+            {"Groupe", "Description", "Taux TVA", "Types Article Autorisés"},
+            {"A", "Exonéré", "0%", "BIE, SER"},
+            {"B", "Taxable 16%", "16%", "BIE, SER"},
+            {"C", "Taxable 8%", "8%", "BIE, SER"},
+            {"D", "Régimes dérogatoires TVA", "0%", "BIE, SER"},
+            {"E", "Exportation et opérations assimilées", "0%", "BIE, SER"},
+            {"F", "TVA marché public à financement extérieur", "16%", "BIE, SER"},
+            {"G", "TVA marché public à financement extérieur", "8%", "BIE, SER"},
+            {"H", "Consignation/déconsignation d'emballage", "0%", "BIE, SER"},
+            {"I", "Garantie et caution", "0%", "BIE, SER"},
+            {"J", "Débours", "0%", "BIE, SER"},
+            {"K", "Opérations réalisées par les non assujettis", "0%", "BIE, SER"},
+            {"L", "Prélèvements sur ventes", "0%", "TAX uniquement ⚠️"},
+            {"M", "Ventes réglementées avec TVA spécifique", "0%", "BIE, SER"},
+            {"N", "TVA spécifique", "0%", "TAX uniquement ⚠️"},
+            {"", "", "", ""},
+            {"Types d'Article:", "", "", ""},
+            {"BIE", "Bien - pour tous groupes sauf L et N", "", ""},
+            {"SER", "Service - pour tous groupes sauf L et N", "", ""},
+            {"TAX", "Taxes et redevances - UNIQUEMENT pour groupes L et N", "", ""}
+        };
+        
+        for (int i = 0; i < taxGroups.length; i++) {
+            Row row = sheet.createRow(i);
+            for (int j = 0; j < taxGroups[i].length; j++) {
+                Cell cell = row.createCell(j);
+                cell.setCellValue(taxGroups[i][j]);
+                if (i == 0 || i == 16) {
+                    cell.setCellStyle(headerStyle);
                 }
             }
         }
@@ -316,7 +447,7 @@ public class ExcelInvoiceService {
 
     private boolean isRowEmpty(Row row) {
         if (row == null) return true;
-        for (int i = 0; i < 11; i++) {
+        for (int i = 0; i < 15; i++) {
             Cell cell = row.getCell(i);
             if (cell != null && cell.getCellType() != CellType.BLANK) {
                 String value = getStringValue(cell);
@@ -388,6 +519,22 @@ public class ExcelInvoiceService {
         return style;
     }
 
+    private CellStyle createRequiredHeaderStyle(Workbook workbook) {
+        CellStyle style = workbook.createCellStyle();
+        Font font = workbook.createFont();
+        font.setBold(true);
+        font.setColor(IndexedColors.WHITE.getIndex());
+        style.setFont(font);
+        style.setFillForegroundColor(IndexedColors.RED.getIndex());
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        style.setAlignment(HorizontalAlignment.CENTER);
+        style.setBorderBottom(BorderStyle.THIN);
+        style.setBorderTop(BorderStyle.THIN);
+        style.setBorderLeft(BorderStyle.THIN);
+        style.setBorderRight(BorderStyle.THIN);
+        return style;
+    }
+
     private CellStyle createValidStyle(Workbook workbook) {
         CellStyle style = workbook.createCellStyle();
         style.setFillForegroundColor(IndexedColors.LIGHT_GREEN.getIndex());
@@ -425,6 +572,17 @@ public class ExcelInvoiceService {
         CellStyle style = workbook.createCellStyle();
         DataFormat format = workbook.createDataFormat();
         style.setDataFormat(format.getFormat("#,##0.00"));
+        style.setBorderBottom(BorderStyle.THIN);
+        style.setBorderTop(BorderStyle.THIN);
+        style.setBorderLeft(BorderStyle.THIN);
+        style.setBorderRight(BorderStyle.THIN);
+        return style;
+    }
+
+    private CellStyle createPercentStyle(Workbook workbook) {
+        CellStyle style = workbook.createCellStyle();
+        DataFormat format = workbook.createDataFormat();
+        style.setDataFormat(format.getFormat("0\"%\""));
         style.setBorderBottom(BorderStyle.THIN);
         style.setBorderTop(BorderStyle.THIN);
         style.setBorderLeft(BorderStyle.THIN);

@@ -1,8 +1,9 @@
 package org.middleware.service;
 
-import org.middleware.models.InvoiceEntity;
 import java.util.HashMap;
 import java.util.Map;
+
+import org.middleware.models.InvoiceEntity;
 
 /**
  * Transforme une InvoiceEntity en réponse utilisateur claire
@@ -43,10 +44,10 @@ public class InvoiceEntityResponseMapper {
             confirmationData.put("status", "CONFIRMED");
             response.put("confirmation", confirmationData);
             
-        } else if ("PHASE1".equals(invoice.status)) {
-            // ⏳ Phase 1 complétée, en attente de Phase 2
+        } else if ("PHASE1".equals(invoice.status) && invoice.uid != null && !invoice.uid.trim().isEmpty()) {
+            // ⏳ Phase 1 complétée AVEC UID valide, en attente de Phase 2
             response.put("success", true);
-            response.put("message", "⏳ Facture soumise avec succès. En attente de confirmation.");
+            response.put("message", "⏳ Normalisation PHASE 1 effectuée avec succès. En attente de confirmation PHASE 2.");
             
             Map<String, Object> submissionData = new HashMap<>();
             submissionData.put("uid", invoice.uid);
@@ -62,6 +63,17 @@ public class InvoiceEntityResponseMapper {
             nextStep.put("uid", invoice.uid);
             response.put("nextStep", nextStep);
             
+        } else if ("PHASE1".equals(invoice.status) && (invoice.uid == null || invoice.uid.trim().isEmpty())) {
+            // ❌ Phase 1 avec statut mais SANS UID = échec
+            response.put("success", false);
+            response.put("message", "✗ PHASE 1 incomplète: UID manquant. La normalisation a échoué.");
+            
+            Map<String, Object> errorData = new HashMap<>();
+            errorData.put("code", "MISSING_UID");
+            errorData.put("description", "L'UID n'a pas été reçu de la DGI. La PHASE 1 n'est pas terminée.");
+            errorData.put("status", invoice.status);
+            response.put("error", errorData);
+            
         } else if (invoice.errorCode != null || invoice.errorDesc != null) {
             // ❌ Erreur détectée
             response.put("success", false);
@@ -73,17 +85,17 @@ public class InvoiceEntityResponseMapper {
             errorData.put("status", invoice.status);
             response.put("error", errorData);
             
-            // Si la facture a une Phase 1, l'indiquer
-            if (invoice.uid != null && !invoice.uid.isEmpty()) {
+            // Si la facture a une Phase 1 valide, l'indiquer
+            if (invoice.uid != null && !invoice.uid.trim().isEmpty()) {
                 Map<String, Object> submissionData = new HashMap<>();
                 submissionData.put("uid", invoice.uid);
                 submissionData.put("total", invoice.total);
                 response.put("submission", submissionData);
             }
         } else {
-            // 📋 Statut indéterminé
+            // 📋 Statut indéterminé ou PENDING
             response.put("success", false);
-            response.put("message", "Statut indéterminé");
+            response.put("message", "Statut: " + (invoice.status != null ? invoice.status : "PENDING"));
             response.put("status", invoice.status);
         }
         
@@ -106,11 +118,17 @@ public class InvoiceEntityResponseMapper {
     }
     
     /**
-     * Détermine si la réponse est un succès
+     * Détermine si la réponse est un succès (statut valide ET UID présent pour PHASE1)
      */
     public static boolean isSuccess(InvoiceEntity invoice) {
-        return ("CONFIRMED".equals(invoice.status) || "PHASE1".equals(invoice.status)) && 
-               (invoice.errorCode == null && invoice.errorDesc == null);
+        if ("CONFIRMED".equals(invoice.status)) {
+            return invoice.errorCode == null && invoice.errorDesc == null;
+        } else if ("PHASE1".equals(invoice.status)) {
+            // PHASE1 n'est un succès que si l'UID est présent
+            return invoice.uid != null && !invoice.uid.trim().isEmpty() &&
+                   invoice.errorCode == null && invoice.errorDesc == null;
+        }
+        return false;
     }
     
     /**

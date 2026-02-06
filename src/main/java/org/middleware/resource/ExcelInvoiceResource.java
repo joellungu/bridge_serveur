@@ -187,31 +187,62 @@ public class ExcelInvoiceResource {
     }
 
     /**
-     * DTO pour les informations du format Excel
+     * DTO pour les informations du format Excel conforme SFE
      */
     public static class ExcelFormatInfo {
-        public String description = "Format de fichier Excel pour l'import de factures";
+        public String description = "Format de fichier Excel pour l'import de factures - Conforme SFE DGI";
         public ColumnInfo[] inputColumns = {
-            new ColumnInfo("rn", "Numéro de référence de la facture", true, "Texte unique"),
+            new ColumnInfo("rn", "Numéro de référence de la facture", true, "Texte unique (ex: FAC-2026-001)"),
             new ColumnInfo("type", "Type de facture", false, "FN (Normal), FA (Avoir), FP (Proforma)"),
             new ColumnInfo("clientNif", "NIF du client", false, "Format: A1234567K"),
             new ColumnInfo("clientName", "Nom du client", false, "Texte"),
-            new ColumnInfo("itemCode", "Code de l'article", false, "Texte"),
-            new ColumnInfo("itemName", "Nom de l'article", false, "Texte"),
-            new ColumnInfo("itemPrice", "Prix unitaire", true, "Nombre décimal"),
-            new ColumnInfo("itemQuantity", "Quantité", true, "Nombre décimal"),
-            new ColumnInfo("itemTaxGroup", "Groupe de TVA", false, "A (16%), B (8%), C (0%), D (Exonéré)"),
-            new ColumnInfo("currency", "Devise", false, "CDF, USD"),
+            new ColumnInfo("itemCode", "Code de l'article (SFE)", true, "Texte unique - Obligatoire SFE"),
+            new ColumnInfo("itemName", "Nom de l'article", true, "Texte"),
+            new ColumnInfo("itemPrice", "Prix unitaire", true, "Nombre décimal > 0"),
+            new ColumnInfo("itemQuantity", "Quantité", true, "Nombre décimal > 0"),
+            new ColumnInfo("itemTaxGroup", "Groupe de TVA (SFE)", false, "A-N selon spécification SFE"),
+            new ColumnInfo("itemArticleType", "Type d'article (SFE)", false, "BIE (Bien), SER (Service), TAX (Taxes)"),
+            new ColumnInfo("unitPriceMode", "Mode de prix", false, "HT (Hors Taxe), TTC (Toutes Taxes Comprises)"),
+            new ColumnInfo("currency", "Devise", false, "CDF, USD, DH"),
+            new ColumnInfo("unit", "Unité de mesure", false, "pcs, kg, heure, etc."),
+            new ColumnInfo("specificTaxAmount", "Montant taxe spécifique", false, "Nombre décimal (par unité)"),
             new ColumnInfo("mode", "Mode de facturation", false, "0 (normal), 1 (spécial)")
         };
         public String[] outputColumnsAdded = {
             "nif - NIF de l'entreprise (auto)",
             "isf - ISF de l'entreprise (auto)",
             "companyName - Nom de l'entreprise (auto)",
+            "taxRate - Taux TVA calculé selon le groupe (%)",
             "subtotal - Sous-total calculé (prix × quantité)",
-            "total - Total avec TVA",
+            "taxAmount - Montant TVA calculé",
+            "total - Total avec TVA et taxes spécifiques",
             "status - VALID, INVALID, ou DUPLICATE",
             "errorMessage - Message d'erreur si invalide"
+        };
+        public TaxGroupInfo[] taxGroups = {
+            new TaxGroupInfo("A", "Exonéré", "0%", "BIE, SER"),
+            new TaxGroupInfo("B", "Taxable 16%", "16%", "BIE, SER"),
+            new TaxGroupInfo("C", "Taxable 8%", "8%", "BIE, SER"),
+            new TaxGroupInfo("D", "Régimes dérogatoires TVA", "0%", "BIE, SER"),
+            new TaxGroupInfo("E", "Exportation", "0%", "BIE, SER"),
+            new TaxGroupInfo("F", "Marché public 16%", "16%", "BIE, SER"),
+            new TaxGroupInfo("G", "Marché public 8%", "8%", "BIE, SER"),
+            new TaxGroupInfo("H", "Consignation/déconsignation", "0%", "BIE, SER"),
+            new TaxGroupInfo("I", "Garantie et caution", "0%", "BIE, SER"),
+            new TaxGroupInfo("J", "Débours", "0%", "BIE, SER"),
+            new TaxGroupInfo("K", "Non assujettis", "0%", "BIE, SER"),
+            new TaxGroupInfo("L", "Prélèvements sur ventes", "0%", "TAX uniquement"),
+            new TaxGroupInfo("M", "Ventes réglementées TVA spécifique", "0%", "BIE, SER"),
+            new TaxGroupInfo("N", "TVA spécifique", "0%", "TAX uniquement")
+        };
+        public ArticleTypeInfo[] articleTypes = {
+            new ArticleTypeInfo("BIE", "Bien", "Valide pour groupes A-K, M"),
+            new ArticleTypeInfo("SER", "Service", "Valide pour groupes A-K, M"),
+            new ArticleTypeInfo("TAX", "Taxes et redevances", "UNIQUEMENT pour groupes L et N")
+        };
+        public String[] constraints = {
+            "⚠️ Type TAX uniquement autorisé pour les groupes L et N",
+            "⚠️ Les groupes L et N exigent obligatoirement le type TAX"
         };
     }
 
@@ -226,6 +257,32 @@ public class ExcelInvoiceResource {
             this.description = description;
             this.required = required;
             this.format = format;
+        }
+    }
+
+    public static class TaxGroupInfo {
+        public String code;
+        public String description;
+        public String taxRate;
+        public String allowedArticleTypes;
+
+        public TaxGroupInfo(String code, String description, String taxRate, String allowedArticleTypes) {
+            this.code = code;
+            this.description = description;
+            this.taxRate = taxRate;
+            this.allowedArticleTypes = allowedArticleTypes;
+        }
+    }
+
+    public static class ArticleTypeInfo {
+        public String code;
+        public String description;
+        public String constraint;
+
+        public ArticleTypeInfo(String code, String description, String constraint) {
+            this.code = code;
+            this.description = description;
+            this.constraint = constraint;
         }
     }
 }
