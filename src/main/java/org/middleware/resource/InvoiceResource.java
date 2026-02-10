@@ -15,16 +15,21 @@ import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.CellType;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.eclipse.microprofile.jwt.JsonWebToken;
 import org.eclipse.microprofile.openapi.annotations.Operation;
-import org.jboss.resteasy.reactive.MultipartForm;
 import org.jboss.resteasy.reactive.PartType;
-import org.jboss.resteasy.reactive.common.util.DateUtil;
 import org.middleware.dto.ApiResponse;
 import org.middleware.models.Entreprise;
 import org.middleware.models.InvoiceEntity;
 import org.middleware.service.DgiService;
+import org.middleware.service.ExcelTraitement;
 import org.middleware.service.InvoiceEntityResponseMapper;
 
 import jakarta.annotation.security.RolesAllowed;
@@ -47,8 +52,6 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.SecurityContext;
 
-import org.apache.poi.ss.usermodel.*;
-
 @Path("/api/invoice")
 @Consumes(MediaType.APPLICATION_JSON)
 @Produces(MediaType.APPLICATION_JSON)
@@ -61,6 +64,9 @@ public class InvoiceResource {
 
     @Inject
     JsonWebToken jwt;
+
+    @Inject
+    ExcelTraitement excelTraitement;
 
     @GET
     @Path("test")
@@ -454,11 +460,20 @@ public class InvoiceResource {
                         .toList()))
                     .build();
             }
-            
-            return Response.ok(new UploadResponse(responseMessage, null, invoices.stream()
-                    .map(inv -> inv.rn)
-                    .toList()))
+
+            // Mettre à jour le fichier Excel
+        byte[] updatedExcel = excelTraitement.updateExcelFromInvoiceEntities(invoices, data);
+        
+        // Retourner le fichier mis à jour
+        return Response.ok(updatedExcel)
+                .header("Content-Disposition", "attachment; filename=\"factures_mise_a_jour.xlsx\"")
+                .type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                 .build();
+            
+            // return Response.ok(new UploadResponse(responseMessage, null, invoices.stream()
+            //         .map(inv -> inv.rn)
+            //         .toList()))
+            //     .build();
             
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
