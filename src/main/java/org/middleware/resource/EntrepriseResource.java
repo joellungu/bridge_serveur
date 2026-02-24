@@ -1,23 +1,32 @@
 package org.middleware.resource;
 
 
-import jakarta.annotation.security.PermitAll;
-import jakarta.annotation.security.RolesAllowed;
-import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
-import jakarta.ws.rs.*;
-import jakarta.ws.rs.core.MediaType;
-import jakarta.ws.rs.core.Response;
+import java.net.URI;
+import java.util.HashMap;
+import java.util.List;
+import java.util.UUID;
+
 import org.eclipse.microprofile.jwt.JsonWebToken;
 import org.middleware.models.Entreprise;
 import org.middleware.service.JwtService;
 import org.mindrot.jbcrypt.BCrypt;
 
-import java.net.URI;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import jakarta.annotation.security.PermitAll;
+import jakarta.annotation.security.RolesAllowed;
+import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.NotAuthorizedException;
+import jakarta.ws.rs.NotFoundException;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.PUT;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 
 @Path("/entreprises")
 @Produces(MediaType.APPLICATION_JSON)
@@ -51,6 +60,16 @@ public class EntrepriseResource {
     // -------------------------
     // CRUD
     // -------------------------
+
+    @GET
+    @Path("/all")
+    public List<Entreprise> list2() {
+        
+        //
+        List<Entreprise> entreprises = Entreprise.listAll();
+        //
+        return entreprises;
+    }
 
     @GET
     @RolesAllowed({"ADMIN"})
