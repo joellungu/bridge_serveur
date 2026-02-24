@@ -25,6 +25,7 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.eclipse.microprofile.jwt.JsonWebToken;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.jboss.resteasy.reactive.PartType;
+import org.jboss.resteasy.reactive.multipart.FileUpload;
 import org.middleware.dto.ApiResponse;
 import org.middleware.models.Entreprise;
 import org.middleware.models.InvoiceEntity;
@@ -478,6 +479,129 @@ public class InvoiceResource {
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                 .entity("{\"error\": \"Erreur lors du traitement du fichier: " + e.getMessage() + "\"}")
+                .build();
+        }
+    }
+
+    /**
+     * Soumet un fichier Excel de factures via un formulaire multipart
+     * 
+     * @param file Le fichier Excel uploadé
+     * @return Réponse contenant le fichier Excel mis à jour avec les résultats DGI
+     */
+    @POST
+    @Path("/upload-file")
+    @Consumes(MediaType.MULTIPART_FORM_DATA)
+    @RolesAllowed({"ADMIN", "USER"})
+    @Transactional
+    @Operation(summary = "Importer un fichier Excel de factures via formulaire multipart et les soumettre à la DGI")
+    public Response uploadFile(@FormParam("file") FileUpload file) {
+        try {
+            // Validation du fichier
+            if (file == null || file.filePath() == null) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("FILE_REQUIRED", "Aucun fichier n'a été fourni"))
+                    .build();
+            }
+
+            // Vérifier l'extension du fichier
+            String fileName = file.fileName();
+            if (fileName == null || (!fileName.endsWith(".xlsx") && !fileName.endsWith(".xls"))) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("INVALID_FILE_TYPE", "Le fichier doit être un fichier Excel (.xlsx ou .xls)"))
+                    .build();
+            }
+
+            // Récupérer l'entreprise connectée
+            String email = jwt.getClaim("email");
+            Entreprise entreprise = Entreprise.find("email", email).firstResult();
+            
+            if (entreprise == null) {
+                return Response.status(Response.Status.UNAUTHORIZED)
+                    .entity(ApiResponse.error("ENTREPRISE_NOT_FOUND", "Entreprise non trouvée"))
+                    .build();
+            }
+
+            // Lire le fichier Excel depuis le chemin temporaire
+            byte[] data = java.nio.file.Files.readAllBytes(file.filePath());
+            InputStream fileInputStream = new ByteArrayInputStream(data);
+            Workbook workbook = new XSSFWorkbook(fileInputStream);
+            Sheet sheet = workbook.getSheetAt(0); // Première feuille
+            
+            List<InvoiceEntity> invoices = new ArrayList<>();
+            List<String> errors = new ArrayList<>();
+            int successCount = 0;
+            
+            // Parcourir les lignes (en sautant l'en-tête)
+            Iterator<Row> rowIterator = sheet.iterator();
+            if (rowIterator.hasNext()) {
+                rowIterator.next(); // Sauter l'en-tête
+            }
+            
+            int rowNum = 2; // Commence à la ligne 2 (après l'en-tête)
+            while (rowIterator.hasNext()) {
+                Row row = rowIterator.next();
+                
+                try {
+                    // Valider la ligne avant création
+                    String validationError = validateRow(row);
+                    if (validationError != null) {
+                        errors.add("Ligne " + rowNum + ": " + validationError);
+                        rowNum++;
+                        continue;
+                    }
+                    
+                    InvoiceEntity invoice = createInvoiceFromRow(row, entreprise);
+                    
+                    // Calculer les montants
+                    calculateInvoiceAmounts(invoice);
+                    
+                    // Persister la facture
+                    invoice.persist();
+                    
+                    // Envoyer à l'API DGI (asynchrone ou synchrone selon besoin)
+                    sendToDGINormalization(invoice, entreprise.token);
+                    
+                    invoices.add(invoice);
+                    successCount++;
+                    
+                } catch (Exception e) {
+                    errors.add("Ligne " + rowNum + ": " + e.getMessage());
+                    LOG.log(Level.WARNING, "Erreur traitement ligne " + rowNum, e);
+                }
+                rowNum++;
+            }
+            
+            workbook.close();
+            fileInputStream.close();
+            
+            // Préparer la réponse
+            String responseMessage = String.format(
+                "Import terminé. %d factures créées avec succès. %d erreurs.",
+                successCount, errors.size()
+            );
+            
+            if (!errors.isEmpty()) {
+                return Response.status(Response.Status.PARTIAL_CONTENT)
+                    .entity(new UploadResponse(responseMessage, errors, invoices.stream()
+                        .map(inv -> inv.rn)
+                        .toList()))
+                    .build();
+            }
+
+            // Mettre à jour le fichier Excel
+            byte[] updatedExcel = excelTraitement.updateExcelFromInvoiceEntities(invoices, data);
+            
+            // Retourner le fichier mis à jour
+            return Response.ok(updatedExcel)
+                    .header("Content-Disposition", "attachment; filename=\"factures_mise_a_jour.xlsx\"")
+                    .type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                    .build();
+            
+        } catch (Exception e) {
+            LOG.log(Level.SEVERE, "Erreur lors du traitement du fichier uploadé", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                .entity(ApiResponse.error("PROCESSING_ERROR", "Erreur lors du traitement du fichier: " + e.getMessage()))
                 .build();
         }
     }
