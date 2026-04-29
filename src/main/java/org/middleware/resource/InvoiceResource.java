@@ -761,6 +761,7 @@ public class InvoiceResource {
         
         // Unit (colonne N) - non utilisé dans InvoiceEntity pour l'instant
         String unit = getStringCellValue(row.getCell(13)); // Colonne N: unit
+        item.unit = unit;
         
         // Taxe spécifique - LES INDICES ONT CHANGÉ !
         BigDecimal taxSpecificAmount = getNumericCellValue(row.getCell(14)); // Colonne O: specificTaxAmount
