@@ -11,8 +11,8 @@ import jakarta.ws.rs.ext.Provider;
 import org.middleware.models.ApiClient;
 import org.middleware.service.ClientTokenService;
 
-// @Provider
-// @Priority(Priorities.AUTHENTICATION)
+@Provider
+@Priority(Priorities.AUTHENTICATION)
 @ApplicationScoped
 public class ClientAuthFilter implements ContainerRequestFilter {
 
@@ -23,7 +23,9 @@ public class ClientAuthFilter implements ContainerRequestFilter {
     public void filter(ContainerRequestContext ctx) {
 
         String path = ctx.getUriInfo().getPath();
-        if (path.startsWith("q/") || path.equals("bridge/api/info/status")) return;
+        if (!(path.startsWith("api/invoice") || path.equals("api/info/status"))) {
+            return;
+        }
 
         String header = ctx.getHeaderString("Authorization");
 

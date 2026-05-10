@@ -29,4 +29,7 @@ public class Entreprise extends PanacheEntityBase {
 
     @Column(name = "token", columnDefinition = "TEXT")
     public String token;
+
+    @Column(name = "dgi_token", columnDefinition = "TEXT")
+    public String dgiToken;
 }

@@ -27,12 +27,15 @@ import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.jboss.resteasy.reactive.PartType;
 import org.jboss.resteasy.reactive.multipart.FileUpload;
 import org.middleware.dto.ApiResponse;
+import org.middleware.models.ApiClient;
 import org.middleware.models.Entreprise;
 import org.middleware.models.InvoiceEntity;
 import org.middleware.service.DgiService;
 import org.middleware.service.ExcelTraitement;
 import org.middleware.service.InvoiceEntityResponseMapper;
+import org.middleware.service.InvoiceValidator;
 
+import jakarta.annotation.security.PermitAll;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.enterprise.inject.spi.CDI;
 import jakarta.inject.Inject;
@@ -69,16 +72,19 @@ public class InvoiceResource {
     @Inject
     ExcelTraitement excelTraitement;
 
+    @Inject
+    InvoiceValidator invoiceValidator;
+
     @GET
     @Path("test")
-    @RolesAllowed({"ADMIN","USER"})
+    @PermitAll
     public String test(){
         return "Ok";
     }
 
     @GET
     @Path("/debug")
-    @RolesAllowed({"USER", "ADMIN"})
+    @PermitAll
     @Produces(MediaType.APPLICATION_JSON)
     public JsonObject debug(@Context SecurityContext ctx) {
         JsonObjectBuilder builder = Json.createObjectBuilder();
@@ -105,7 +111,7 @@ public class InvoiceResource {
      * @return Réponse contenant l'InvoiceEntity mise à jour avec statut et erreurs
      */
     @POST
-    @RolesAllowed({"ADMIN","USER"})
+    @PermitAll
     @Transactional
     @Operation(summary = "Soumettre une facture à la DGI")
     public Response requestInvoice(InvoiceEntity invoice) {
@@ -121,15 +127,14 @@ public class InvoiceResource {
             }
 
             // 2. Récupération de l'utilisateur depuis le JWT
-            String email = jwt.getClaim("email");
-            if (email == null || email.isEmpty()) {
+            if (requestContext == null) {
                 return Response.status(Response.Status.UNAUTHORIZED)
                         .entity(ApiResponse.error("EMAIL_NOT_FOUND",
                                 "Aucun email trouvé dans le token"))
                         .build();
             }
 
-            Entreprise entreprise = Entreprise.find("email", email).firstResult();
+            Entreprise entreprise = getAuthenticatedEntreprise();
             if (entreprise == null) {
                 return Response.status(Response.Status.NOT_FOUND)
                         .entity(ApiResponse.error("USER_NOT_FOUND",
@@ -138,17 +143,24 @@ public class InvoiceResource {
             }
 
             // 3. Vérifier si la facture existe déjà
-            InvoiceEntity existingInvoice = InvoiceEntity.find("rn", invoice.rn).firstResult();
+            InvoiceEntity existingInvoice = InvoiceEntity.find("nif = ?1 and rn = ?2", entreprise.nif, invoice.rn).firstResult();
 
             InvoiceEntity invoiceToProcess;
             if (existingInvoice == null) {
                 // Nouvelle facture
                 LOG.info("Nouvelle facture: " + invoice.rn);
                 invoice.id = null;
-                invoice.email = email;
+                invoice.email = entreprise.email;
                 invoice.nif = entreprise.nif;
                 invoice.isf = entreprise.isf;
                 invoice.status = "PENDING";
+                List<String> validationErrors = invoiceValidator.validateForDgi(invoice);
+                if (!validationErrors.isEmpty()) {
+                    return Response.status(Response.Status.BAD_REQUEST)
+                            .entity(ApiResponse.error("INVOICE_VALIDATION_ERROR",
+                                    String.join("; ", validationErrors)))
+                            .build();
+                }
                 invoice.persist();
                 invoiceToProcess = invoice;
             } else {
@@ -168,7 +180,7 @@ public class InvoiceResource {
 
             // 4. Soumission à la DGI (Phase 1 + Phase 2)
             DgiService dgiService = CDI.current().select(DgiService.class).get();
-            InvoiceEntity processedInvoice = dgiService.submitInvoice(invoiceToProcess, entreprise.token);
+            InvoiceEntity processedInvoice = dgiService.submitInvoice(invoiceToProcess, getDgiToken(entreprise));
 
             LOG.info("Facture traitée - Status: " + processedInvoice.status);
 
@@ -194,7 +206,7 @@ public class InvoiceResource {
      */
     @POST
     @Path("batch")
-    @RolesAllowed({"ADMIN","USER"})
+    @PermitAll
     @Transactional
     @Operation(summary = "Soumettre un lot de factures à la DGI")
     public Response requestBatchInvoices(List<InvoiceEntity> invoices) {
@@ -210,15 +222,14 @@ public class InvoiceResource {
             }
 
             // 2. Récupération de l'utilisateur depuis le JWT
-            String email = jwt.getClaim("email");
-            if (email == null || email.isEmpty()) {
+            if (requestContext == null) {
                 return Response.status(Response.Status.UNAUTHORIZED)
                         .entity(ApiResponse.error("EMAIL_NOT_FOUND",
                                 "Aucun email trouvé dans le token"))
                         .build();
             }
 
-            Entreprise entreprise = Entreprise.find("email", email).firstResult();
+            Entreprise entreprise = getAuthenticatedEntreprise();
             if (entreprise == null) {
                 return Response.status(Response.Status.NOT_FOUND)
                         .entity(ApiResponse.error("USER_NOT_FOUND",
@@ -245,16 +256,25 @@ public class InvoiceResource {
                     LOG.info("Traitement facture lot: " + invoice.rn);
 
                     // Vérifier si la facture existe déjà
-                    InvoiceEntity existingInvoice = InvoiceEntity.find("rn", invoice.rn).firstResult();
+                    InvoiceEntity existingInvoice = InvoiceEntity.find("nif = ?1 and rn = ?2", entreprise.nif, invoice.rn).firstResult();
 
                     InvoiceEntity invoiceToProcess;
                     if (existingInvoice == null) {
                         // Nouvelle facture
                         invoice.id = null;
-                        invoice.email = email;
+                        invoice.email = entreprise.email;
                         invoice.nif = entreprise.nif;
                         invoice.isf = entreprise.isf;
                         invoice.status = "PENDING";
+                        List<String> validationErrors = invoiceValidator.validateForDgi(invoice);
+                        if (!validationErrors.isEmpty()) {
+                            Map<String, Object> failure = new HashMap<>();
+                            failure.put("invoiceNumber", invoice.rn);
+                            failure.put("errorCode", "INVOICE_VALIDATION_ERROR");
+                            failure.put("errorDesc", String.join("; ", validationErrors));
+                            failureResults.add(failure);
+                            continue;
+                        }
                         invoice.persist();
                         invoiceToProcess = invoice;
                     } else {
@@ -271,7 +291,7 @@ public class InvoiceResource {
                     }
 
                     // Soumission à la DGI
-                    InvoiceEntity processedInvoice = dgiService.submitInvoice(invoiceToProcess, entreprise.token);
+                    InvoiceEntity processedInvoice = dgiService.submitInvoice(invoiceToProcess, getDgiToken(entreprise));
 
                     // Vérifier le résultat
                     if ("CONFIRMED".equals(processedInvoice.status)) {
@@ -333,13 +353,13 @@ public class InvoiceResource {
      */
     @GET
     @Path("{uid}")
-    @RolesAllowed({"ADMIN","USER"})
+    @PermitAll
     @Operation(summary = "Récupérer les détails d'une facture par UID")
     public Response getInvoiceByUid(@PathParam("uid") String uid) {
         try {
             // Récupérer l'email depuis le token JWT
             String email = jwt.getClaim("email");
-            if (email == null || email.isEmpty()) {
+            if (requestContext == null) {
                 return Response.status(Response.Status.UNAUTHORIZED)
                         .entity(ApiResponse.error("EMAIL_NOT_FOUND",
                                 "Aucun email trouvé dans le token"))
@@ -347,7 +367,7 @@ public class InvoiceResource {
             }
 
             // Récupérer l'entreprise
-            Entreprise entreprise = Entreprise.find("email", email).firstResult();
+            Entreprise entreprise = getAuthenticatedEntreprise();
             if (entreprise == null) {
                 return Response.status(Response.Status.NOT_FOUND)
                         .entity(ApiResponse.error("USER_NOT_FOUND",
@@ -356,7 +376,7 @@ public class InvoiceResource {
             }
 
             // Récupérer la facture
-            InvoiceEntity invoiceEntity = InvoiceEntity.find("email = ?1 and uid = ?2", email, uid).firstResult();
+            InvoiceEntity invoiceEntity = InvoiceEntity.find("nif = ?1 and uid = ?2", entreprise.nif, uid).firstResult();
             if (invoiceEntity == null) {
                 return Response.status(Response.Status.NOT_FOUND)
                         .entity(ApiResponse.error("INVOICE_NOT_FOUND",
@@ -858,9 +878,6 @@ public class InvoiceResource {
         invoice.operator.id = entreprise.id;
         invoice.operator.name = entreprise.nom;
         
-        // UID unique
-        invoice.uid = UUID.randomUUID().toString();
-        
         return invoice;
     }
 
@@ -876,6 +893,36 @@ public class InvoiceResource {
                 default -> "Personne Physique";
             };
         }
+
+    private Entreprise getAuthenticatedEntreprise() {
+        Object clientProperty = requestContext != null ? requestContext.getProperty("client") : null;
+        if (clientProperty instanceof ApiClient apiClient) {
+            if (apiClient.nif == null || apiClient.nif.isBlank()) {
+                return null;
+            }
+            return Entreprise.find("nif", apiClient.nif).firstResult();
+        }
+
+        try {
+            String email = jwt != null ? jwt.getClaim("email") : null;
+            if (email != null && !email.isBlank()) {
+                return Entreprise.find("email", email).firstResult();
+            }
+        } catch (Exception ignored) {
+            // API-key requests do not carry JWT claims.
+        }
+        return null;
+    }
+
+    private String getDgiToken(Entreprise entreprise) {
+        if (entreprise == null) {
+            return null;
+        }
+        if (entreprise.dgiToken != null && !entreprise.dgiToken.isBlank()) {
+            return entreprise.dgiToken;
+        }
+        return entreprise.token;
+    }
 
     private boolean isEmptyCell(Cell cell) {
         if (cell == null) return true;

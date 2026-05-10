@@ -5,7 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import jakarta.enterprise.context.ApplicationScoped;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.eclipse.microprofile.faulttolerance.Retry;
+import org.middleware.dto.DgiInvoiceRequest;
 import org.middleware.dto.DgiResponse;
 import org.middleware.models.InvoiceEntity;
 
@@ -25,11 +27,16 @@ import java.util.logging.Logger;
 public class DgiService {
 
     private static final Logger LOG = Logger.getLogger(DgiService.class.getName());
-    private static final String DGI_API_BASE_URL = "https://developper.dgirdc.cd/edef/api/invoice";
     private static final int DGI_TIMEOUT_SECONDS = 30;
 
     private final HttpClient client = HttpClient.newHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
+
+    @ConfigProperty(name = "dgi.api.invoice.url")
+    String invoiceApiUrl;
+
+    @ConfigProperty(name = "dgi.api.info.url")
+    String infoApiUrl;
 
     public DgiService() {
         mapper.registerModule(new JavaTimeModule());
@@ -53,7 +60,7 @@ public class DgiService {
             LOG.info("=== PHASE 1: Soumission de la facture RN=" + invoice.rn + " ===");
             
             // Vérification que la facture n'est pas déjà soumise
-            if ("PHASE1".equals(invoice.status) || "CONFIRMED".equals(invoice.status)) {
+            if ("CONFIRMED".equals(invoice.status)) {
                 LOG.warning("Facture déjà soumise: " + invoice.rn + " (Statut: " + invoice.status + ")");
                 invoice.errorCode = "INVOICE_ALREADY_SUBMITTED";
                 invoice.errorDesc = "Cette facture a déjà été soumise à la DGI";
@@ -182,8 +189,10 @@ public class DgiService {
     public InvoiceEntity submitInvoice(InvoiceEntity invoice, String dgiToken) {
         LOG.info("=== Soumission complète de la facture (PHASE 1 + PHASE 2) ===");
         
-        // PHASE 1: Soumission
-        invoice = submitInvoicePhase1(invoice, dgiToken);
+        // PHASE 1: Soumission, sauf si elle attend deja la confirmation
+        if (!"PHASE1".equals(invoice.status)) {
+            invoice = submitInvoicePhase1(invoice, dgiToken);
+        }
         
         // Si Phase 1 échoue, retourner l'entité avec l'erreur
         if (!("PHASE1".equals(invoice.status))) {
@@ -199,12 +208,12 @@ public class DgiService {
      */
     private JsonNode submitInvoiceToDgi(InvoiceEntity invoice, String dgiToken) 
             throws IOException, InterruptedException {
-        String jsonPayload = mapper.writeValueAsString(invoice);
+        String jsonPayload = mapper.writeValueAsString(DgiInvoiceRequest.from(invoice));
         
         LOG.fine("Payload soumission: " + jsonPayload.substring(0, Math.min(100, jsonPayload.length())) + "...");
         
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(DGI_API_BASE_URL))
+                .uri(URI.create(invoiceApiUrl))
                 .timeout(Duration.ofSeconds(DGI_TIMEOUT_SECONDS))
                 .header("Accept", "application/json")
                 .header("Content-Type", "application/json")
@@ -217,7 +226,7 @@ public class DgiService {
         LOG.info("[PHASE 1 Response] HTTP " + response.statusCode());
         LOG.fine("Response body: " + response.body());
 
-        return mapper.readTree(response.body());
+        return parseDgiResponse(response);
     }
 
     /**
@@ -235,7 +244,7 @@ public class DgiService {
         
         LOG.fine("Payload confirmation: " + jsonPayload);
         
-        String confirmUrl = DGI_API_BASE_URL + "/" + invoice.uid + "/confirm";
+        String confirmUrl = invoiceApiUrl + "/" + invoice.uid + "/confirm";
         LOG.info("URL de confirmation: " + confirmUrl);
         
         HttpRequest request = HttpRequest.newBuilder()
@@ -252,7 +261,51 @@ public class DgiService {
         LOG.info("[PHASE 2 Response] HTTP " + response.statusCode());
         LOG.fine("Response body: " + response.body());
 
-        return mapper.readTree(response.body());
+        return parseDgiResponse(response);
+    }
+
+    public JsonNode getInfoStatus(String dgiToken) throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(infoApiUrl + "/status"))
+                .timeout(Duration.ofSeconds(DGI_TIMEOUT_SECONDS))
+                .header("Accept", "application/json")
+                .header("Authorization", "Bearer " + dgiToken)
+                .GET()
+                .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        LOG.info("[INFO STATUS Response] HTTP " + response.statusCode());
+        return parseDgiResponse(response);
+    }
+
+    private JsonNode parseDgiResponse(HttpResponse<String> response) throws IOException {
+        String body = response.body();
+        JsonNode json;
+        try {
+            json = body == null || body.isBlank()
+                    ? mapper.createObjectNode()
+                    : mapper.readTree(body);
+        } catch (Exception e) {
+            json = mapper.createObjectNode()
+                    .put("errorCode", "DGI_INVALID_RESPONSE")
+                    .put("errorDesc", "Reponse DGI non JSON: " + body);
+        }
+
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            String errorCode = extractField(json, "errorCode");
+            String description = extractField(json, "errorDesc");
+            if (description == null) {
+                description = extractField(json, "message");
+            }
+            if (description == null) {
+                description = extractField(json, "error");
+            }
+            return mapper.createObjectNode()
+                    .put("errorCode", errorCode != null ? errorCode : "DGI_HTTP_" + response.statusCode())
+                    .put("errorDesc", description != null ? description : "Erreur HTTP DGI " + response.statusCode());
+        }
+
+        return json;
     }
 
     /**

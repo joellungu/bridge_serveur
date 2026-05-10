@@ -10,7 +10,8 @@ import java.time.LocalDateTime;
 public class ApiClientRepository implements PanacheRepository<ApiClient> {
 
     public ApiClient findValidClient(String token) {
-        return find("apiKey = ?1 and active = true", token)
+        LocalDateTime now = LocalDateTime.now();
+        return find("apiKey = ?1 and active = true and (expiresAt is null or expiresAt > ?2)", token, now)
                 .firstResult();
     }
 }

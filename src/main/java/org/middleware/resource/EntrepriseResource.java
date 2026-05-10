@@ -54,6 +54,7 @@ public class EntrepriseResource {
         public String role;
         public String isf;
         public String token;
+        public String dgiToken;
         public String password;
     }
 
@@ -153,6 +154,7 @@ public class EntrepriseResource {
         user.isf = dto.isf;
         user.password = BCrypt.hashpw(dto.password, BCrypt.gensalt());//dto.password;
         user.nom = dto.nom;
+        user.dgiToken = dto.dgiToken != null ? dto.dgiToken : dto.token;
         user.token = dto.token;
         user.persist();
 
@@ -183,7 +185,7 @@ public class EntrepriseResource {
         user.isf = dto.isf;
         user.password = dto.password;
         user.nom = dto.nom;
-        user.token = jwtService.generateJWT(user);
+        user.dgiToken = dto.dgiToken != null ? dto.dgiToken : user.dgiToken;
 
         if (dto.password != null && !dto.password.isEmpty()) {
             user.password = BCrypt.hashpw(dto.password, BCrypt.gensalt());
@@ -216,9 +218,11 @@ public class EntrepriseResource {
         }
         // ⚠️ IMPORTANT : ne jamais renvoyer le password hash
         entreprise.password = null;
-        entreprise.token = jwtService.generateJWT(entreprise);
+        HashMap data = new HashMap();
+        data.put("bridge_token", jwtService.generateJWT(entreprise));
+        data.put("data", entreprise);
 
-        return Response.ok(entreprise).build();
+        return Response.ok(data).build();
     }
 
 }
