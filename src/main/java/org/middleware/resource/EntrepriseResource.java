@@ -124,11 +124,8 @@ public class EntrepriseResource {
     @Path("/save")
     @PermitAll
     @Transactional
-    public Response create(@Context HttpServerRequest request, UserDTO dto) {
+    public Response create(UserDTO dto) {
         //
-        request.body().onItem().transformToString().subscribe(body -> {
-            System.out.println("Corps de la requête : " + body);
-        });
         //, @Context SecurityContext securityContext
         //@RolesAllowed({"ADMIN"})
 
