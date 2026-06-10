@@ -265,8 +265,17 @@ public class DgiService {
     }
 
     public JsonNode getInfoStatus(String dgiToken) throws IOException, InterruptedException {
+        return getInfo("status", dgiToken);
+    }
+
+    public JsonNode getInfo(String endpoint, String dgiToken) throws IOException, InterruptedException {
+        String cleanEndpoint = endpoint == null ? "" : endpoint.trim();
+        if (cleanEndpoint.isBlank() || cleanEndpoint.contains("..") || cleanEndpoint.contains("/") || cleanEndpoint.contains("\\")) {
+            throw new IllegalArgumentException("Endpoint d'information DGI invalide");
+        }
+
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(infoApiUrl + "/status"))
+                .uri(URI.create(infoApiUrl + "/" + cleanEndpoint))
                 .timeout(Duration.ofSeconds(DGI_TIMEOUT_SECONDS))
                 .header("Accept", "application/json")
                 .header("Authorization", "Bearer " + dgiToken)
@@ -274,7 +283,7 @@ public class DgiService {
                 .build();
 
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-        LOG.info("[INFO STATUS Response] HTTP " + response.statusCode());
+        LOG.info("[INFO " + cleanEndpoint + " Response] HTTP " + response.statusCode());
         return parseDgiResponse(response);
     }
 

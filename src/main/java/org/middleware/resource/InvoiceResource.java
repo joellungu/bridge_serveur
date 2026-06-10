@@ -62,6 +62,8 @@ import jakarta.ws.rs.core.SecurityContext;
 public class InvoiceResource {
 
     private static final Logger LOG = Logger.getLogger(InvoiceResource.class.getName());
+    private static final String XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    private static final String XLSX_REQUIRED_MESSAGE = "Le fichier doit etre un fichier Excel .xlsx";
 
     @Context
     ContainerRequestContext requestContext;
@@ -417,8 +419,7 @@ public class InvoiceResource {
             }
 
             // Lire le fichier Excel
-            InputStream fileInputStream = new ByteArrayInputStream(data);
-            Workbook workbook = new XSSFWorkbook(fileInputStream);
+            Workbook workbook = openXlsxWorkbook(data);
             Sheet sheet = workbook.getSheetAt(0); // Première feuille
             
             List<InvoiceEntity> invoices = new ArrayList<>();
@@ -466,7 +467,6 @@ public class InvoiceResource {
             }
             
             workbook.close();
-            fileInputStream.close();
             
             // Préparer la réponse
             String responseMessage = String.format(
@@ -488,7 +488,7 @@ public class InvoiceResource {
         // Retourner le fichier mis à jour
         return Response.ok(updatedExcel)
                 .header("Content-Disposition", "attachment; filename=\"factures_mise_a_jour.xlsx\"")
-                .type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                .type(XLSX_MEDIA_TYPE)
                 .build();
             
             // return Response.ok(new UploadResponse(responseMessage, null, invoices.stream()
@@ -497,6 +497,11 @@ public class InvoiceResource {
             //     .build();
             
         } catch (Exception e) {
+            if (isInvalidExcelException(e)) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("INVALID_FILE_TYPE", XLSX_REQUIRED_MESSAGE))
+                    .build();
+            }
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                 .entity("{\"error\": \"Erreur lors du traitement du fichier: " + e.getMessage() + "\"}")
                 .build();
@@ -526,9 +531,9 @@ public class InvoiceResource {
 
             // Vérifier l'extension du fichier
             String fileName = file.fileName();
-            if (fileName == null || (!fileName.endsWith(".xlsx") && !fileName.endsWith(".xls"))) {
+            if (!isXlsxFileName(fileName)) {
                 return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(ApiResponse.error("INVALID_FILE_TYPE", "Le fichier doit être un fichier Excel (.xlsx ou .xls)"))
+                    .entity(ApiResponse.error("INVALID_FILE_TYPE", XLSX_REQUIRED_MESSAGE))
                     .build();
             }
 
@@ -544,8 +549,7 @@ public class InvoiceResource {
 
             // Lire le fichier Excel depuis le chemin temporaire
             byte[] data = java.nio.file.Files.readAllBytes(file.filePath());
-            InputStream fileInputStream = new ByteArrayInputStream(data);
-            Workbook workbook = new XSSFWorkbook(fileInputStream);
+            Workbook workbook = openXlsxWorkbook(data);
             Sheet sheet = workbook.getSheetAt(0); // Première feuille
             
             List<InvoiceEntity> invoices = new ArrayList<>();
@@ -593,7 +597,6 @@ public class InvoiceResource {
             }
             
             workbook.close();
-            fileInputStream.close();
             
             // Préparer la réponse
             String responseMessage = String.format(
@@ -615,15 +618,42 @@ public class InvoiceResource {
             // Retourner le fichier mis à jour
             return Response.ok(updatedExcel)
                     .header("Content-Disposition", "attachment; filename=\"factures_mise_a_jour.xlsx\"")
-                    .type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                    .type(XLSX_MEDIA_TYPE)
                     .build();
             
         } catch (Exception e) {
+            if (isInvalidExcelException(e)) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("INVALID_FILE_TYPE", XLSX_REQUIRED_MESSAGE))
+                    .build();
+            }
             LOG.log(Level.SEVERE, "Erreur lors du traitement du fichier uploadé", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                 .entity(ApiResponse.error("PROCESSING_ERROR", "Erreur lors du traitement du fichier: " + e.getMessage()))
                 .build();
         }
+    }
+
+    private Workbook openXlsxWorkbook(byte[] data) throws java.io.IOException {
+        if (data == null || data.length == 0) {
+            throw new InvalidExcelFileException();
+        }
+        return new XSSFWorkbook(new ByteArrayInputStream(data));
+    }
+
+    private boolean isXlsxFileName(String fileName) {
+        return fileName != null && fileName.toLowerCase().endsWith(".xlsx");
+    }
+
+    private boolean isInvalidExcelException(Exception e) {
+        return e instanceof InvalidExcelFileException
+            || e instanceof org.apache.poi.openxml4j.exceptions.NotOfficeXmlFileException
+            || e instanceof org.apache.poi.openxml4j.exceptions.OLE2NotOfficeXmlFileException
+            || e instanceof org.apache.poi.openxml4j.exceptions.InvalidFormatException
+            || e instanceof org.apache.poi.ooxml.POIXMLException;
+    }
+
+    private static class InvalidExcelFileException extends RuntimeException {
     }
 
     private String validateRow(Row row) {

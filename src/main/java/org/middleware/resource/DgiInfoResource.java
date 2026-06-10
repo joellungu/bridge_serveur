@@ -26,6 +26,31 @@ public class DgiInfoResource {
     @Path("/status")
     @PermitAll
     public Response status() {
+        return proxyInfo("status", "statut DGI");
+    }
+
+    @GET
+    @Path("/taxGroups")
+    @PermitAll
+    public Response taxGroups() {
+        return proxyInfo("taxGroups", "groupes de taxation DGI");
+    }
+
+    @GET
+    @Path("/itemTypes")
+    @PermitAll
+    public Response itemTypes() {
+        return proxyInfo("itemTypes", "types d'article DGI");
+    }
+
+    @GET
+    @Path("/currencyRates")
+    @PermitAll
+    public Response currencyRates() {
+        return proxyInfo("currencyRates", "devises DGI");
+    }
+
+    private Response proxyInfo(String endpoint, String label) {
         try {
             Entreprise entreprise = getAuthenticatedEntreprise();
             if (entreprise == null) {
@@ -46,12 +71,12 @@ public class DgiInfoResource {
             }
 
             DgiService dgiService = CDI.current().select(DgiService.class).get();
-            JsonNode dgiStatus = dgiService.getInfoStatus(dgiToken);
-            return Response.ok(dgiStatus).build();
+            JsonNode dgiInfo = dgiService.getInfo(endpoint, dgiToken);
+            return Response.ok(dgiInfo).build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity(ApiResponse.error("DGI_INFO_ERROR",
-                            "Erreur lors de la verification du statut DGI: " + e.getMessage()))
+                            "Erreur lors de la lecture des " + label + ": " + e.getMessage()))
                     .build();
         }
     }

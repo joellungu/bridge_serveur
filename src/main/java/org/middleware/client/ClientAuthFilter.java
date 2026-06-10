@@ -23,7 +23,7 @@ public class ClientAuthFilter implements ContainerRequestFilter {
     public void filter(ContainerRequestContext ctx) {
 
         String path = ctx.getUriInfo().getPath();
-        if (!(path.startsWith("api/invoice") || path.equals("api/info/status"))) {
+        if (!(path.startsWith("api/invoice") || path.startsWith("api/info"))) {
             return;
         }
 
