@@ -454,7 +454,7 @@ public class InvoiceResource {
                     invoice.persist();
                     
                     // Envoyer à l'API DGI (asynchrone ou synchrone selon besoin)
-                    sendToDGINormalization(invoice, entreprise.token);
+                    sendToDGINormalization(invoice, entreprise.dgiToken);
                     
                     invoices.add(invoice);
                     successCount++;
@@ -584,7 +584,7 @@ public class InvoiceResource {
                     invoice.persist();
                     
                     // Envoyer à l'API DGI (asynchrone ou synchrone selon besoin)
-                    sendToDGINormalization(invoice, entreprise.token);
+                    sendToDGINormalization(invoice, entreprise.dgiToken);
                     
                     invoices.add(invoice);
                     successCount++;
