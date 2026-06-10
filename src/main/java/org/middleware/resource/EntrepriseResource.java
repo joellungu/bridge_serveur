@@ -47,6 +47,7 @@ public class EntrepriseResource {
     }
 
     // ========= DTO CREATE/UPDATE =========
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class UserDTO {
         public String email;
         public String nom;
@@ -142,9 +143,21 @@ public class EntrepriseResource {
 
         // Trouver l'utilisateur par email
 
-        Entreprise usr = Entreprise.find("email", dto.email).firstResult();
-        if(usr != null) {
-            return Response.status(409).entity("Utilisateur non trouvé").build();
+        // Entreprise usr = Entreprise.find("email", dto.email).firstResult();
+        // if(usr != null) {
+        //     return Response.status(409).entity("Utilisateur non trouvé").build();
+        // }
+
+        if (dto.email == null || dto.password == null || dto.nom == null) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                .entity("Champs obligatoires manquants")
+                .build();
+        }
+
+        if (dto.token == null || dto.token.isEmpty()) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                .entity("Le champ 'token' est obligatoire")
+                .build();
         }
 
         Entreprise user = new Entreprise();
