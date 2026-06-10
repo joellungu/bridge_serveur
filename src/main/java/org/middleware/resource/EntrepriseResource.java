@@ -56,6 +56,9 @@ public class EntrepriseResource {
         public String token;
         public String dgiToken;
         public String password;
+
+        // ✅ Ajoute ceci
+        public UserDTO() {}
     }
 
     // -------------------------
@@ -121,7 +124,11 @@ public class EntrepriseResource {
     @Path("/save")
     @PermitAll
     @Transactional
-    public Response create(UserDTO dto) {
+    public Response create(@Context HttpServerRequest request, UserDTO dto) {
+        //
+        request.body().onItem().transformToString().subscribe(body -> {
+            System.out.println("Corps de la requête : " + body);
+        });
         //, @Context SecurityContext securityContext
         //@RolesAllowed({"ADMIN"})
 
