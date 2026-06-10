@@ -47,7 +47,6 @@ public class EntrepriseResource {
     }
 
     // ========= DTO CREATE/UPDATE =========
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class UserDTO {
         public String email;
         public String nom;
