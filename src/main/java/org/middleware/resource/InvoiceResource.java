@@ -85,6 +85,16 @@ public class InvoiceResource {
     }
 
     @GET
+    @Path("/all")
+    public List<InvoiceEntity> list2() {
+        
+        //
+        List<InvoiceEntity> invoices = InvoiceEntity.listAll();
+        //
+        return invoices;
+    }
+
+    @GET
     @Path("/debug")
     @PermitAll
     @Produces(MediaType.APPLICATION_JSON)
