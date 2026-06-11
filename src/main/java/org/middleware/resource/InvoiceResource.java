@@ -667,93 +667,87 @@ public class InvoiceResource {
     }
 
     private String validateRow(Row row) {
-        // Colonnes selon le fichier CSV normalisé:
-        // A(0): NIF_ENT, B(1): RN_ENT, C(2): NUM_FAC, D(3): TYPE, E(4): MODE, F(5): ISF,
-        // G(6): DATE_EMIS, H(7): DATE_PAIE, I(8): DATE_VALID, J(9): DEVISE,
-        // K(10): NIF_CLI, L(11): NOM_CLI, M(12): CONTACT_CLI, N(13): ADRESSE_CLI, O(14): TYPE_CLI,
-        // P(15): CODE_ART, Q(16): NOM_ART, R(17): TYPE_ART, S(18): QTY, T(19): UNIT, U(20): PRIX_UNIT,
-        // V(21): GRP_FISCAL, W(22): MONTANT_TAX_SPEC, X(23): MODE_PAYE, Y(24): MONTANT_PAYE, Z(25): DEVISE_PAYE
+        // Structure Excel correcte basée sur InvoiceEntity et ExcelTraitement.java:
+        // A(0): rn, B(1): type, C(2): clientNif, D(3): clientName, E(4): clientType,
+        // F(5): itemCode, G(6): itemName, H(7): itemPrice, I(8): itemQuantity,
+        // J(9): itemTaxGroup, K(10): itemArticleType, L(11): unitPriceMode,
+        // M(12): currency, N(13): unit, O(14): specificTaxAmount, P(15): taxSpecificValue,
+        // Q(16): mode, R(17): reference, S(18): referenceType, T(19): referenceDesc,
+        // U(20): curCode, V(21): curDate, W(22): curRate
         
         // Validation des champs obligatoires
-        if (isEmptyCell(row.getCell(2))) return "NUM_FAC (C) manquant";
-        if (isEmptyCell(row.getCell(3))) return "TYPE (D) manquant - doit être FA, FC ou FE";
-        if (isEmptyCell(row.getCell(4))) return "MODE (E) manquant - doit être M ou D";
-        if (isEmptyCell(row.getCell(6))) return "DATE_EMIS (G) manquante";
-        if (isEmptyCell(row.getCell(9))) return "DEVISE (J) manquante";
-        if (isEmptyCell(row.getCell(10))) return "NIF_CLI (K) manquant";
-        if (isEmptyCell(row.getCell(11))) return "NOM_CLI (L) manquant";
-        if (isEmptyCell(row.getCell(14))) return "TYPE_CLI (O) manquant";
-        if (isEmptyCell(row.getCell(15))) return "CODE_ART (P) manquant";
-        if (isEmptyCell(row.getCell(16))) return "NOM_ART (Q) manquant";
-        if (isEmptyCell(row.getCell(17))) return "TYPE_ART (R) manquant - doit être P ou S";
-        if (isEmptyCell(row.getCell(18))) return "QTY (S) manquante";
-        if (isEmptyCell(row.getCell(20))) return "PRIX_UNIT (U) manquant";
-        if (isEmptyCell(row.getCell(21))) return "GRP_FISCAL (V) manquant - doit être A, B, E ou X";
+        if (isEmptyCell(row.getCell(0))) return "RN (A) manquant";
+        if (isEmptyCell(row.getCell(1))) return "TYPE (B) manquant - doit être FA, FC ou FE";
+        if (isEmptyCell(row.getCell(2))) return "CLIENT_NIF (C) manquant";
+        if (isEmptyCell(row.getCell(3))) return "CLIENT_NAME (D) manquant";
+        if (isEmptyCell(row.getCell(4))) return "CLIENT_TYPE (E) manquant";
+        if (isEmptyCell(row.getCell(5))) return "ITEM_CODE (F) manquant";
+        if (isEmptyCell(row.getCell(6))) return "ITEM_NAME (G) manquant";
+        if (isEmptyCell(row.getCell(7))) return "ITEM_PRICE (H) manquant";
+        if (isEmptyCell(row.getCell(8))) return "ITEM_QUANTITY (I) manquante";
+        if (isEmptyCell(row.getCell(9))) return "ITEM_TAX_GROUP (J) manquant";
+        if (isEmptyCell(row.getCell(10))) return "ITEM_ARTICLE_TYPE (K) manquant - P ou S";
+        if (isEmptyCell(row.getCell(12))) return "CURRENCY (M) manquante";
         
         // Valider le type de facture
-        String type = getStringCellValue(row.getCell(3)); // TYPE (D)
+        String type = getStringCellValue(row.getCell(1)); // TYPE (B)
         if (type != null && !Arrays.asList("FA", "FC", "FE").contains(type.toUpperCase())) {
-            return "TYPE (D) invalide. Doit être: FA, FC ou FE";
-        }
-        
-        // Valider le mode
-        String mode = getStringCellValue(row.getCell(4)); // MODE (E)
-        if (mode != null && !Arrays.asList("M", "D").contains(mode.toUpperCase())) {
-            return "MODE (E) invalide. Doit être: M ou D";
+            return "TYPE (B) invalide. Doit être: FA, FC ou FE";
         }
         
         // Valider le type de client
-        String clientType = getStringCellValue(row.getCell(14)); // TYPE_CLI (O)
+        String clientType = getStringCellValue(row.getCell(4)); // CLIENT_TYPE (E)
         List<String> validClientTypes = Arrays.asList("PE", "PM", "PC", "PL", "AO", "PP");
         if (clientType != null && !validClientTypes.contains(clientType.toUpperCase())) {
-            return "TYPE_CLI (O) invalide. Doit être: PE, PM, PC, PL, AO ou PP";
+            return "CLIENT_TYPE (E) invalide. Doit être: PE, PM, PC, PL, AO ou PP";
         }
         
         // Valider le type d'article
-        String articleType = getStringCellValue(row.getCell(17)); // TYPE_ART (R)
-        if (articleType != null && !Arrays.asList("P", "S").contains(articleType.toUpperCase())) {
-            return "TYPE_ART (R) invalide. Doit être: P (Produit) ou S (Service)";
+        String articleType = getStringCellValue(row.getCell(10)); // ITEM_ARTICLE_TYPE (K)
+        if (articleType != null && !Arrays.asList("P", "S", "BIE", "SER").contains(articleType.toUpperCase())) {
+            return "ITEM_ARTICLE_TYPE (K) invalide. Doit être: P (Produit) ou S (Service)";
         }
         
         // Valider le groupe fiscal
-        String taxGroup = getStringCellValue(row.getCell(21)); // GRP_FISCAL (V)
+        String taxGroup = getStringCellValue(row.getCell(9)); // ITEM_TAX_GROUP (J)
         List<String> validTaxGroups = Arrays.asList("A", "B", "E", "X");
         if (taxGroup != null && !validTaxGroups.contains(taxGroup.toUpperCase())) {
-            return "GRP_FISCAL (V) invalide. Doit être: A (19%), B (13%), E (7%) ou X (Exonéré)";
+            return "ITEM_TAX_GROUP (J) invalide. Doit être: A (19%), B (13%), E (7%) ou X (Exonéré)";
         }
         
         // Valider les valeurs numériques
-        Cell quantityCell = row.getCell(18); // QTY (S)
+        Cell priceCell = row.getCell(7); // ITEM_PRICE (H)
+        if (priceCell != null && priceCell.getCellType() == CellType.NUMERIC) {
+            double price = priceCell.getNumericCellValue();
+            if (price < 0) {
+                return "ITEM_PRICE (H) doit être positif ou zéro";
+            }
+        }
+        
+        Cell quantityCell = row.getCell(8); // ITEM_QUANTITY (I)
         if (quantityCell != null && quantityCell.getCellType() == CellType.NUMERIC) {
             double quantity = quantityCell.getNumericCellValue();
             // Pour facture d'avoir (FE), la quantité peut être négative
             if (quantity == 0 && !"FE".equalsIgnoreCase(type)) {
-                return "QTY (S) doit être non-zéro pour factures non-avoir";
-            }
-        }
-        
-        Cell priceCell = row.getCell(20); // PRIX_UNIT (U)
-        if (priceCell != null && priceCell.getCellType() == CellType.NUMERIC) {
-            double price = priceCell.getNumericCellValue();
-            if (price < 0) {
-                return "PRIX_UNIT (U) doit être positif ou zéro";
+                return "ITEM_QUANTITY (I) doit être non-zéro";
             }
         }
         
         // Valider les montants optionnels si fournis
-        Cell taxSpecCell = row.getCell(22); // MONTANT_TAX_SPEC (W)
+        Cell taxSpecCell = row.getCell(14); // SPECIFIC_TAX_AMOUNT (O)
         if (taxSpecCell != null && taxSpecCell.getCellType() == CellType.NUMERIC) {
             double taxSpec = taxSpecCell.getNumericCellValue();
             if (taxSpec < 0) {
-                return "MONTANT_TAX_SPEC (W) doit être positif ou zéro";
+                return "SPECIFIC_TAX_AMOUNT (O) doit être positif ou zéro";
             }
         }
         
-        Cell paymentAmountCell = row.getCell(24); // MONTANT_PAYE (Y)
-        if (paymentAmountCell != null && paymentAmountCell.getCellType() == CellType.NUMERIC) {
-            double paymentAmount = paymentAmountCell.getNumericCellValue();
-            if (paymentAmount < 0) {
-                return "MONTANT_PAYE (Y) doit être positif";
+        // Valider taux de change si fourni
+        Cell curRateCell = row.getCell(22); // CUR_RATE (W)
+        if (curRateCell != null && curRateCell.getCellType() == CellType.NUMERIC) {
+            double curRate = curRateCell.getNumericCellValue();
+            if (curRate < 0) {
+                return "CUR_RATE (W) doit être positif";
             }
         }
         
@@ -763,92 +757,80 @@ public class InvoiceResource {
     private InvoiceEntity createInvoiceFromRow(Row row, Entreprise entreprise) {
         InvoiceEntity invoice = new InvoiceEntity();
         
-        // Récupérer l'entreprise via le token
+        // Récupérer l'entreprise connectée
         invoice.email = entreprise.email;
-        invoice.nif = getStringCellValue(row.getCell(0)); // A(0): NIF_ENT
+        invoice.nif = entreprise.nif;
         invoice.companyName = entreprise.nom;
-        invoice.isf = getStringCellValue(row.getCell(5)); // F(5): ISF (optionnel)
+        invoice.isf = entreprise.isf;
         
-        // Informations de base depuis Excel selon le format CSV normalisé
-        // A(0): NIF_ENT, B(1): RN_ENT, C(2): NUM_FAC, D(3): TYPE, E(4): MODE, F(5): ISF,
-        // G(6): DATE_EMIS, H(7): DATE_PAIE, I(8): DATE_VALID, J(9): DEVISE,
-        // K(10): NIF_CLI, L(11): NOM_CLI, M(12): CONTACT_CLI, N(13): ADRESSE_CLI, O(14): TYPE_CLI,
-        // P(15): CODE_ART, Q(16): NOM_ART, R(17): TYPE_ART, S(18): QTY, T(19): UNIT, U(20): PRIX_UNIT,
-        // V(21): GRP_FISCAL, W(22): MONTANT_TAX_SPEC, X(23): MODE_PAYE, Y(24): MONTANT_PAYE, Z(25): DEVISE_PAYE
+        // Structure Excel correcte basée sur InvoiceEntity et ExcelTraitement.java:
+        // A(0): rn, B(1): type, C(2): clientNif, D(3): clientName, E(4): clientType,
+        // F(5): itemCode, G(6): itemName, H(7): itemPrice, I(8): itemQuantity,
+        // J(9): itemTaxGroup, K(10): itemArticleType, L(11): unitPriceMode,
+        // M(12): currency, N(13): unit, O(14): specificTaxAmount, P(15): taxSpecificValue,
+        // Q(16): mode, R(17): reference, S(18): referenceType, T(19): referenceDesc,
+        // U(20): curCode, V(21): curDate, W(22): curRate
         
-        invoice.rn = getStringCellValue(row.getCell(2)); // C(2): NUM_FAC
-        invoice.type = getStringCellValue(row.getCell(3)); // D(3): TYPE
-        invoice.mode = getStringCellValue(row.getCell(4)); // E(4): MODE (M ou D)
-        invoice.currency = getStringCellValue(row.getCell(9)); // J(9): DEVISE
-        
-        // Dates
-        String dateEmisStr = getStringCellValue(row.getCell(6)); // G(6): DATE_EMIS
-        if (dateEmisStr != null && !dateEmisStr.isEmpty()) {
-            try {
-                invoice.issueDate = parseDate(dateEmisStr);
-            } catch (Exception e) {
-                invoice.issueDate = LocalDateTime.now();
-            }
-        } else {
-            invoice.issueDate = LocalDateTime.now();
-        }
-        
-        String datePaieStr = getStringCellValue(row.getCell(7)); // H(7): DATE_PAIE
-        if (datePaieStr != null && !datePaieStr.isEmpty()) {
-            try {
-                invoice.paymentDate = parseDate(datePaieStr);
-            } catch (Exception e) {
-                invoice.paymentDate = invoice.issueDate.plusDays(7);
-            }
-        } else {
-            invoice.paymentDate = invoice.issueDate.plusDays(7);
-        }
-        
-        String dateValidStr = getStringCellValue(row.getCell(8)); // I(8): DATE_VALID
-        if (dateValidStr != null && !dateValidStr.isEmpty()) {
-            try {
-                invoice.validityDate = parseDate(dateValidStr);
-            } catch (Exception e) {
-                invoice.validityDate = invoice.issueDate.plusDays(30);
-            }
-        } else {
-            invoice.validityDate = invoice.issueDate.plusDays(30);
-        }
+        // Informations de facture
+        invoice.rn = getStringCellValue(row.getCell(0)); // A: rn
+        invoice.type = getStringCellValue(row.getCell(1)); // B: type (FA, FC, FE)
+        invoice.mode = getStringCellValue(row.getCell(16)); // Q: mode (ht, ttc)
+        invoice.currency = getStringCellValue(row.getCell(12)); // M: currency
         
         // Client
         invoice.client = new InvoiceEntity.Client();
-        invoice.client.nif = getStringCellValue(row.getCell(10)); // K(10): NIF_CLI
-        invoice.client.name = getStringCellValue(row.getCell(11)); // L(11): NOM_CLI
-        invoice.client.contact = getStringCellValue(row.getCell(12)); // M(12): CONTACT_CLI
-        invoice.client.address = getStringCellValue(row.getCell(13)); // N(13): ADRESSE_CLI
-        invoice.client.type = getStringCellValue(row.getCell(14)); // O(14): TYPE_CLI
+        invoice.client.nif = getStringCellValue(row.getCell(2)); // C: clientNif
+        invoice.client.name = getStringCellValue(row.getCell(3)); // D: clientName
+        invoice.client.type = getStringCellValue(row.getCell(4)); // E: clientType
         invoice.client.typeDesc = getClientTypeDescription(invoice.client.type);
         
-        // Items
+        // Items (une facture contient au moins un article par ligne Excel)
         InvoiceEntity.Item item = new InvoiceEntity.Item();
-        item.code = getStringCellValue(row.getCell(15)); // P(15): CODE_ART
-        item.name = getStringCellValue(row.getCell(16)); // Q(16): NOM_ART
-        item.type = getStringCellValue(row.getCell(17)); // R(17): TYPE_ART (P ou S)
-        item.quantity = getNumericCellValue(row.getCell(18)); // S(18): QTY
-        item.unit = getStringCellValue(row.getCell(19)); // T(19): UNIT
-        item.price = getNumericCellValue(row.getCell(20)); // U(20): PRIX_UNIT
-        item.taxGroup = getStringCellValue(row.getCell(21)); // V(21): GRP_FISCAL
-        item.taxSpecificAmount = getNumericCellValue(row.getCell(22)); // W(22): MONTANT_TAX_SPEC
+        item.code = getStringCellValue(row.getCell(5)); // F: itemCode
+        item.name = getStringCellValue(row.getCell(6)); // G: itemName
+        item.type = getStringCellValue(row.getCell(10)); // K: itemArticleType (P ou S)
+        item.price = getNumericCellValue(row.getCell(7)); // H: itemPrice
+        item.quantity = getNumericCellValue(row.getCell(8)); // I: itemQuantity
+        item.unit = getStringCellValue(row.getCell(13)); // N: unit
+        item.taxGroup = getStringCellValue(row.getCell(9)); // J: itemTaxGroup
+        item.taxSpecificAmount = getNumericCellValue(row.getCell(14)); // O: specificTaxAmount
+        item.taxSpecificValue = getStringCellValue(row.getCell(15)); // P: taxSpecificValue
         
         // Initialiser la liste d'items
         invoice.items = new ArrayList<>();
         invoice.items.add(item);
         
-        // Paiements
-        invoice.payments = new ArrayList<>();
-        InvoiceEntity.Payment payment = new InvoiceEntity.Payment();
-        payment.name = getStringCellValue(row.getCell(23)); // X(23): MODE_PAYE (VIR, CHQ, ESP, CB)
-        payment.amount = getNumericCellValue(row.getCell(24)); // Y(24): MONTANT_PAYE
-        payment.currencyCode = getStringCellValue(row.getCell(25)); // Z(25): DEVISE_PAYE
-        invoice.payments.add(payment);
+        // Factures d'avoir - champs optionnels
+        invoice.reference = getStringCellValue(row.getCell(17)); // R: reference
+        invoice.referenceType = getStringCellValue(row.getCell(18)); // S: referenceType
+        invoice.referenceDesc = getStringCellValue(row.getCell(19)); // T: referenceDesc
+        
+        // Devises - champs optionnels
+        invoice.curCode = getStringCellValue(row.getCell(20)); // U: curCode
+        String curDateStr = getStringCellValue(row.getCell(21)); // V: curDate
+        if (curDateStr != null && !curDateStr.isEmpty()) {
+            try {
+                invoice.curDate = parseDate(curDateStr);
+            } catch (Exception e) {
+                invoice.curDate = LocalDateTime.now();
+            }
+        }
+        String curRateStr = getStringCellValue(row.getCell(22)); // W: curRate
+        if (curRateStr != null && !curRateStr.isEmpty()) {
+            try {
+                invoice.curRate = new BigDecimal(curRateStr);
+            } catch (NumberFormatException e) {
+                invoice.curRate = BigDecimal.ONE;
+            }
+        } else {
+            invoice.curRate = BigDecimal.ONE;
+        }
         
         // Dates par défaut
-        invoice.dueDate = invoice.validityDate;
+        invoice.issueDate = LocalDateTime.now();
+        invoice.dueDate = LocalDateTime.now().plusDays(30);
+        invoice.paymentDate = LocalDateTime.now().plusDays(7);
+        invoice.validityDate = LocalDateTime.now().plusDays(30);
         invoice.createdAt = LocalDateTime.now();
         invoice.updatedAt = LocalDateTime.now();
         
