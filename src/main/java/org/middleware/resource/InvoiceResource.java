@@ -402,7 +402,7 @@ public class InvoiceResource {
 
     @POST
     @Path("/upload-excel")
-    @RolesAllowed({"ADMIN", "USER"})
+    @RolesAllowed({"ADMIN", "USER", "admin"})
     @Transactional
     @Consumes(MediaType.APPLICATION_OCTET_STREAM)
     @Operation(summary = "Importer un fichier Excel de factures et les soumettre à la DGI")
