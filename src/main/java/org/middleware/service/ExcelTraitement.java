@@ -23,6 +23,12 @@ import jakarta.enterprise.context.ApplicationScoped;
 @ApplicationScoped
 public class ExcelTraitement {
 
+    private static final String[] ROOT_HEADERS = {"EMAIL", "UID", "NIF", "COMPANY_NAME", "ISF"};
+    private static final String[] RESULT_HEADERS = {"ERROR_CODE", "ERROR_DESC", "DATE_TIME", "QR_CODE", "CODE_DEF_DGI", "COUNTERS", "NIM"};
+    private static final int ROOT_COLUMN_COUNT = ROOT_HEADERS.length;
+    private static final int RN_COLUMN = ROOT_COLUMN_COUNT;
+    private static final int RESULT_COLUMN = ROOT_COLUMN_COUNT + 23;
+
     /**
      * Met à jour le fichier Excel avec les données des factures normalisées
      * Chaque ligne Excel correspondant à une facture sera mise à jour avec les nouvelles valeurs
@@ -32,11 +38,12 @@ public class ExcelTraitement {
             Workbook workbook = new XSSFWorkbook(bis)) {
             
             Sheet sheet = workbook.getSheetAt(0);
+            ensureInvoiceEntityColumns(sheet);
             
             // Créer un Map pour accéder rapidement aux factures par RN
             Map<String, InvoiceEntity> invoiceMap = invoices.stream()
                     .filter(inv -> inv.rn != null)
-                    .collect(Collectors.toMap(inv -> inv.rn, inv -> inv));
+                    .collect(Collectors.toMap(inv -> inv.rn, inv -> inv, (first, replacement) -> replacement));
             
             // Parcourir toutes les lignes Excel (en sautant l'en-tête)
             for (int rowNum = 1; rowNum <= sheet.getLastRowNum(); rowNum++) {
@@ -44,7 +51,7 @@ public class ExcelTraitement {
                 if (row == null) continue;
                 
                 // Récupérer le RN de la ligne Excel
-                String excelRn = getStringCellValue(row.getCell(0)); // Colonne A: rn
+                String excelRn = getStringCellValue(row.getCell(RN_COLUMN)); // Colonne F: rn
                 
                 if (excelRn != null && invoiceMap.containsKey(excelRn)) {
                     InvoiceEntity invoice = invoiceMap.get(excelRn);
@@ -65,9 +72,15 @@ public class ExcelTraitement {
      * Cette méthode suit la même structure de colonnes que votre code existant
      */
     private void updateExcelRowFromInvoice(Row row, InvoiceEntity invoice) {
-        int colIndex = 1;
+        int colIndex = 0;
         
-        // Colonne A: rn (ne change pas)
+        setCellValue(row, colIndex++, invoice.email);
+        setCellValue(row, colIndex++, invoice.uid);
+        setCellValue(row, colIndex++, invoice.nif);
+        setCellValue(row, colIndex++, invoice.companyName);
+        setCellValue(row, colIndex++, invoice.isf);
+
+        // Colonne F: rn
         setCellValue(row, colIndex++, invoice.rn);
         
         // Colonne B: type
@@ -104,8 +117,7 @@ public class ExcelTraitement {
         setCellValue(row, colIndex++, item != null ? item.taxGroup : null);
         
         // Colonne K: itemArticleType - déduit du type
-        String articleType = "SER".equals(item != null ? item.type : null) ? "SER" : "BIE";
-        setCellValue(row, colIndex++, articleType);
+        setCellValue(row, colIndex++, item != null ? item.type : null);
         
         // Colonne L: unitPriceMode
         // Utilisez votre logique pour déterminer le mode de prix
@@ -117,6 +129,7 @@ public class ExcelTraitement {
         
         // Colonne M: currency
         setCellValue(row, colIndex++, invoice.currency);
+        setCellValue(row, colIndex++, item != null ? item.unit : null);
         
         // Colonne N: unit
         // Vous pouvez conserver la valeur originale ou laisser vide
@@ -175,6 +188,84 @@ public class ExcelTraitement {
         
         // Mettre à jour les totaux si nécessaire (dans les cellules correspondantes)
         updateCalculatedFields(row, invoice);
+    }
+
+    private void ensureInvoiceEntityColumns(Sheet sheet) {
+        Row header = sheet.getRow(0);
+        if (header == null) {
+            header = sheet.createRow(0);
+        }
+
+        String firstHeader = getStringCellValue(header.getCell(0));
+        if ("EMAIL".equalsIgnoreCase(firstHeader)) {
+            for (int i = 0; i < ROOT_HEADERS.length; i++) {
+                setCellValue(header, i, ROOT_HEADERS[i]);
+            }
+            setResultHeaders(header);
+            return;
+        }
+
+        for (int rowNum = 0; rowNum <= sheet.getLastRowNum(); rowNum++) {
+            Row row = sheet.getRow(rowNum);
+            if (row == null) {
+                row = sheet.createRow(rowNum);
+            }
+
+            int lastCell = Math.max(row.getLastCellNum(), 0);
+            for (int col = lastCell - 1; col >= 0; col--) {
+                Cell oldCell = row.getCell(col);
+                Cell newCell = row.getCell(col + ROOT_COLUMN_COUNT);
+                if (newCell == null) {
+                    newCell = row.createCell(col + ROOT_COLUMN_COUNT);
+                }
+                copyCellValue(oldCell, newCell);
+                if (oldCell != null) {
+                    oldCell.setBlank();
+                }
+            }
+        }
+
+        header = sheet.getRow(0);
+        for (int i = 0; i < ROOT_HEADERS.length; i++) {
+            setCellValue(header, i, ROOT_HEADERS[i]);
+        }
+        setResultHeaders(header);
+    }
+
+    private void setResultHeaders(Row header) {
+        for (int i = 0; i < RESULT_HEADERS.length; i++) {
+            setCellValue(header, RESULT_COLUMN + i, RESULT_HEADERS[i]);
+        }
+    }
+
+    private void copyCellValue(Cell source, Cell target) {
+        if (source == null) {
+            target.setBlank();
+            return;
+        }
+
+        switch (source.getCellType()) {
+            case STRING:
+                target.setCellValue(source.getStringCellValue());
+                break;
+            case NUMERIC:
+                if (isDateCell(source)) {
+                    target.setCellValue(source.getLocalDateTimeCellValue());
+                } else {
+                    target.setCellValue(source.getNumericCellValue());
+                }
+                break;
+            case BOOLEAN:
+                target.setCellValue(source.getBooleanCellValue());
+                break;
+            case FORMULA:
+                target.setCellFormula(source.getCellFormula());
+                break;
+            case BLANK:
+            default:
+                target.setBlank();
+                break;
+        }
     }
 
     /**

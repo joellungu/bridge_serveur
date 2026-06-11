@@ -64,6 +64,7 @@ public class InvoiceResource {
     private static final Logger LOG = Logger.getLogger(InvoiceResource.class.getName());
     private static final String XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     private static final String XLSX_REQUIRED_MESSAGE = "Le fichier doit etre un fichier Excel .xlsx";
+    private static final int EXCEL_ROOT_COLUMN_COUNT = 5;
 
     @Context
     ContainerRequestContext requestContext;
@@ -667,147 +668,118 @@ public class InvoiceResource {
     }
 
     private String validateRow(Row row) {
-        // Structure Excel correcte basée sur InvoiceEntity et ExcelTraitement.java:
-        // A(0): rn, B(1): type, C(2): clientNif, D(3): clientName, E(4): clientType,
-        // F(5): itemCode, G(6): itemName, H(7): itemPrice, I(8): itemQuantity,
-        // J(9): itemTaxGroup, K(10): itemArticleType, L(11): unitPriceMode,
-        // M(12): currency, N(13): unit, O(14): specificTaxAmount, P(15): taxSpecificValue,
-        // Q(16): mode, R(17): reference, S(18): referenceType, T(19): referenceDesc,
-        // U(20): curCode, V(21): curDate, W(22): curRate
-        
-        // Validation des champs obligatoires
-        if (isEmptyCell(row.getCell(0))) return "RN (A) manquant";
-        if (isEmptyCell(row.getCell(1))) return "TYPE (B) manquant - doit être FA, FC ou FE";
-        if (isEmptyCell(row.getCell(2))) return "CLIENT_NIF (C) manquant";
-        if (isEmptyCell(row.getCell(3))) return "CLIENT_NAME (D) manquant";
-        if (isEmptyCell(row.getCell(4))) return "CLIENT_TYPE (E) manquant";
-        if (isEmptyCell(row.getCell(5))) return "ITEM_CODE (F) manquant";
-        if (isEmptyCell(row.getCell(6))) return "ITEM_NAME (G) manquant";
-        if (isEmptyCell(row.getCell(7))) return "ITEM_PRICE (H) manquant";
-        if (isEmptyCell(row.getCell(8))) return "ITEM_QUANTITY (I) manquante";
-        if (isEmptyCell(row.getCell(9))) return "ITEM_TAX_GROUP (J) manquant";
-        if (isEmptyCell(row.getCell(10))) return "ITEM_ARTICLE_TYPE (K) manquant - P ou S";
-        if (isEmptyCell(row.getCell(12))) return "CURRENCY (M) manquante";
-        
-        // Valider le type de facture
-        String type = getStringCellValue(row.getCell(1)); // TYPE (B)
+        int base = getInvoiceExcelBaseColumn(row);
+
+        if (isEmptyCell(row.getCell(base))) return "RN manquant";
+        if (isEmptyCell(row.getCell(base + 1))) return "TYPE manquant - doit etre FA, FC ou FE";
+        if (isEmptyCell(row.getCell(base + 2))) return "CLIENT_NIF manquant";
+        if (isEmptyCell(row.getCell(base + 3))) return "CLIENT_NAME manquant";
+        if (isEmptyCell(row.getCell(base + 4))) return "CLIENT_TYPE manquant";
+        if (isEmptyCell(row.getCell(base + 5))) return "ITEM_CODE manquant";
+        if (isEmptyCell(row.getCell(base + 6))) return "ITEM_NAME manquant";
+        if (isEmptyCell(row.getCell(base + 7))) return "ITEM_PRICE manquant";
+        if (isEmptyCell(row.getCell(base + 8))) return "ITEM_QUANTITY manquante";
+        if (isEmptyCell(row.getCell(base + 9))) return "ITEM_TAX_GROUP manquant";
+        if (isEmptyCell(row.getCell(base + 10))) return "ITEM_ARTICLE_TYPE manquant - P ou S";
+        if (isEmptyCell(row.getCell(base + 12))) return "CURRENCY manquante";
+
+        String type = getStringCellValue(row.getCell(base + 1));
         if (type != null && !Arrays.asList("FA", "FC", "FE").contains(type.toUpperCase())) {
-            return "TYPE (B) invalide. Doit être: FA, FC ou FE";
+            return "TYPE invalide. Doit etre: FA, FC ou FE";
         }
-        
-        // Valider le type de client
-        String clientType = getStringCellValue(row.getCell(4)); // CLIENT_TYPE (E)
+
+        String clientType = getStringCellValue(row.getCell(base + 4));
         List<String> validClientTypes = Arrays.asList("PE", "PM", "PC", "PL", "AO", "PP");
         if (clientType != null && !validClientTypes.contains(clientType.toUpperCase())) {
-            return "CLIENT_TYPE (E) invalide. Doit être: PE, PM, PC, PL, AO ou PP";
+            return "CLIENT_TYPE invalide. Doit etre: PE, PM, PC, PL, AO ou PP";
         }
-        
-        // Valider le type d'article
-        String articleType = getStringCellValue(row.getCell(10)); // ITEM_ARTICLE_TYPE (K)
+
+        String articleType = getStringCellValue(row.getCell(base + 10));
         if (articleType != null && !Arrays.asList("P", "S", "BIE", "SER").contains(articleType.toUpperCase())) {
-            return "ITEM_ARTICLE_TYPE (K) invalide. Doit être: P (Produit) ou S (Service)";
+            return "ITEM_ARTICLE_TYPE invalide. Doit etre: P (Produit) ou S (Service)";
         }
-        
-        // Valider le groupe fiscal
-        String taxGroup = getStringCellValue(row.getCell(9)); // ITEM_TAX_GROUP (J)
+
+        String taxGroup = getStringCellValue(row.getCell(base + 9));
         List<String> validTaxGroups = Arrays.asList("A", "B", "E", "X");
         if (taxGroup != null && !validTaxGroups.contains(taxGroup.toUpperCase())) {
-            return "ITEM_TAX_GROUP (J) invalide. Doit être: A (19%), B (13%), E (7%) ou X (Exonéré)";
+            return "ITEM_TAX_GROUP invalide. Doit etre: A (19%), B (13%), E (7%) ou X (Exonere)";
         }
-        
-        // Valider les valeurs numériques
-        Cell priceCell = row.getCell(7); // ITEM_PRICE (H)
+
+        Cell priceCell = row.getCell(base + 7);
         if (priceCell != null && priceCell.getCellType() == CellType.NUMERIC) {
             double price = priceCell.getNumericCellValue();
             if (price < 0) {
-                return "ITEM_PRICE (H) doit être positif ou zéro";
+                return "ITEM_PRICE doit etre positif ou zero";
             }
         }
-        
-        Cell quantityCell = row.getCell(8); // ITEM_QUANTITY (I)
+
+        Cell quantityCell = row.getCell(base + 8);
         if (quantityCell != null && quantityCell.getCellType() == CellType.NUMERIC) {
             double quantity = quantityCell.getNumericCellValue();
-            // Pour facture d'avoir (FE), la quantité peut être négative
             if (quantity == 0 && !"FE".equalsIgnoreCase(type)) {
-                return "ITEM_QUANTITY (I) doit être non-zéro";
+                return "ITEM_QUANTITY doit etre non-zero";
             }
         }
-        
-        // Valider les montants optionnels si fournis
-        Cell taxSpecCell = row.getCell(14); // SPECIFIC_TAX_AMOUNT (O)
+
+        Cell taxSpecCell = row.getCell(base + 14);
         if (taxSpecCell != null && taxSpecCell.getCellType() == CellType.NUMERIC) {
             double taxSpec = taxSpecCell.getNumericCellValue();
             if (taxSpec < 0) {
-                return "SPECIFIC_TAX_AMOUNT (O) doit être positif ou zéro";
+                return "SPECIFIC_TAX_AMOUNT doit etre positif ou zero";
             }
         }
-        
-        // Valider taux de change si fourni
-        Cell curRateCell = row.getCell(22); // CUR_RATE (W)
+
+        Cell curRateCell = row.getCell(base + 22);
         if (curRateCell != null && curRateCell.getCellType() == CellType.NUMERIC) {
             double curRate = curRateCell.getNumericCellValue();
             if (curRate < 0) {
-                return "CUR_RATE (W) doit être positif";
+                return "CUR_RATE doit etre positif";
             }
         }
-        
-        return null; // Pas d'erreur
-    }
 
+        return null;
+    }
     private InvoiceEntity createInvoiceFromRow(Row row, Entreprise entreprise) {
         InvoiceEntity invoice = new InvoiceEntity();
-        
-        // Récupérer l'entreprise connectée
-        invoice.email = entreprise.email;
-        invoice.nif = entreprise.nif;
-        invoice.companyName = entreprise.nom;
-        invoice.isf = entreprise.isf;
-        
-        // Structure Excel correcte basée sur InvoiceEntity et ExcelTraitement.java:
-        // A(0): rn, B(1): type, C(2): clientNif, D(3): clientName, E(4): clientType,
-        // F(5): itemCode, G(6): itemName, H(7): itemPrice, I(8): itemQuantity,
-        // J(9): itemTaxGroup, K(10): itemArticleType, L(11): unitPriceMode,
-        // M(12): currency, N(13): unit, O(14): specificTaxAmount, P(15): taxSpecificValue,
-        // Q(16): mode, R(17): reference, S(18): referenceType, T(19): referenceDesc,
-        // U(20): curCode, V(21): curDate, W(22): curRate
-        
-        // Informations de facture
-        invoice.rn = getStringCellValue(row.getCell(0)); // A: rn
-        invoice.type = getStringCellValue(row.getCell(1)); // B: type (FA, FC, FE)
-        invoice.mode = getStringCellValue(row.getCell(16)); // Q: mode (ht, ttc)
-        invoice.currency = getStringCellValue(row.getCell(12)); // M: currency
-        
-        // Client
+        int base = getInvoiceExcelBaseColumn(row);
+
+        invoice.email = firstNonBlank(base == EXCEL_ROOT_COLUMN_COUNT ? getStringCellValue(row.getCell(0)) : null, entreprise.email);
+        invoice.uid = base == EXCEL_ROOT_COLUMN_COUNT ? getStringCellValue(row.getCell(1)) : null;
+        invoice.nif = firstNonBlank(base == EXCEL_ROOT_COLUMN_COUNT ? getStringCellValue(row.getCell(2)) : null, entreprise.nif);
+        invoice.companyName = firstNonBlank(base == EXCEL_ROOT_COLUMN_COUNT ? getStringCellValue(row.getCell(3)) : null, entreprise.nom);
+        invoice.isf = firstNonBlank(base == EXCEL_ROOT_COLUMN_COUNT ? getStringCellValue(row.getCell(4)) : null, entreprise.isf);
+
+        invoice.rn = getStringCellValue(row.getCell(base));
+        invoice.type = getStringCellValue(row.getCell(base + 1));
+        invoice.mode = getStringCellValue(row.getCell(base + 16));
+        invoice.currency = getStringCellValue(row.getCell(base + 12));
+
         invoice.client = new InvoiceEntity.Client();
-        invoice.client.nif = getStringCellValue(row.getCell(2)); // C: clientNif
-        invoice.client.name = getStringCellValue(row.getCell(3)); // D: clientName
-        invoice.client.type = getStringCellValue(row.getCell(4)); // E: clientType
+        invoice.client.nif = getStringCellValue(row.getCell(base + 2));
+        invoice.client.name = getStringCellValue(row.getCell(base + 3));
+        invoice.client.type = getStringCellValue(row.getCell(base + 4));
         invoice.client.typeDesc = getClientTypeDescription(invoice.client.type);
-        
-        // Items (une facture contient au moins un article par ligne Excel)
+
         InvoiceEntity.Item item = new InvoiceEntity.Item();
-        item.code = getStringCellValue(row.getCell(5)); // F: itemCode
-        item.name = getStringCellValue(row.getCell(6)); // G: itemName
-        item.type = getStringCellValue(row.getCell(10)); // K: itemArticleType (P ou S)
-        item.price = getNumericCellValue(row.getCell(7)); // H: itemPrice
-        item.quantity = getNumericCellValue(row.getCell(8)); // I: itemQuantity
-        item.unit = getStringCellValue(row.getCell(13)); // N: unit
-        item.taxGroup = getStringCellValue(row.getCell(9)); // J: itemTaxGroup
-        item.taxSpecificAmount = getNumericCellValue(row.getCell(14)); // O: specificTaxAmount
-        item.taxSpecificValue = getStringCellValue(row.getCell(15)); // P: taxSpecificValue
-        
-        // Initialiser la liste d'items
+        item.code = getStringCellValue(row.getCell(base + 5));
+        item.name = getStringCellValue(row.getCell(base + 6));
+        item.type = getStringCellValue(row.getCell(base + 10));
+        item.price = getNumericCellValue(row.getCell(base + 7));
+        item.quantity = getNumericCellValue(row.getCell(base + 8));
+        item.unit = getStringCellValue(row.getCell(base + 13));
+        item.taxGroup = getStringCellValue(row.getCell(base + 9));
+        item.taxSpecificAmount = getNumericCellValue(row.getCell(base + 14));
+        item.taxSpecificValue = getStringCellValue(row.getCell(base + 15));
+
         invoice.items = new ArrayList<>();
         invoice.items.add(item);
-        
-        // Factures d'avoir - champs optionnels
-        invoice.reference = getStringCellValue(row.getCell(17)); // R: reference
-        invoice.referenceType = getStringCellValue(row.getCell(18)); // S: referenceType
-        invoice.referenceDesc = getStringCellValue(row.getCell(19)); // T: referenceDesc
-        
-        // Devises - champs optionnels
-        invoice.curCode = getStringCellValue(row.getCell(20)); // U: curCode
-        String curDateStr = getStringCellValue(row.getCell(21)); // V: curDate
+
+        invoice.reference = getStringCellValue(row.getCell(base + 17));
+        invoice.referenceType = getStringCellValue(row.getCell(base + 18));
+        invoice.referenceDesc = getStringCellValue(row.getCell(base + 19));
+
+        invoice.curCode = getStringCellValue(row.getCell(base + 20));
+        String curDateStr = getStringCellValue(row.getCell(base + 21));
         if (curDateStr != null && !curDateStr.isEmpty()) {
             try {
                 invoice.curDate = parseDate(curDateStr);
@@ -815,7 +787,7 @@ public class InvoiceResource {
                 invoice.curDate = LocalDateTime.now();
             }
         }
-        String curRateStr = getStringCellValue(row.getCell(22)); // W: curRate
+        String curRateStr = getStringCellValue(row.getCell(base + 22));
         if (curRateStr != null && !curRateStr.isEmpty()) {
             try {
                 invoice.curRate = new BigDecimal(curRateStr);
@@ -825,24 +797,30 @@ public class InvoiceResource {
         } else {
             invoice.curRate = BigDecimal.ONE;
         }
-        
-        // Dates par défaut
+
         invoice.issueDate = LocalDateTime.now();
         invoice.dueDate = LocalDateTime.now().plusDays(30);
         invoice.paymentDate = LocalDateTime.now().plusDays(7);
         invoice.validityDate = LocalDateTime.now().plusDays(30);
         invoice.createdAt = LocalDateTime.now();
         invoice.updatedAt = LocalDateTime.now();
-        
-        // Statut
         invoice.status = "PENDING";
-        
-        // Operator (celui qui a créé la facture)
+
         invoice.operator = new InvoiceEntity.Operator();
         invoice.operator.id = entreprise.id;
         invoice.operator.name = entreprise.nom;
-        
+
         return invoice;
+    }
+
+    private int getInvoiceExcelBaseColumn(Row row) {
+        Row header = row != null && row.getSheet() != null ? row.getSheet().getRow(0) : null;
+        String firstHeader = header != null ? getStringCellValue(header.getCell(0)) : null;
+        return "EMAIL".equalsIgnoreCase(firstHeader) ? EXCEL_ROOT_COLUMN_COUNT : 0;
+    }
+
+    private String firstNonBlank(String preferred, String fallback) {
+        return preferred != null && !preferred.isBlank() ? preferred : fallback;
     }
 
     private LocalDateTime parseDate(String dateStr) {
