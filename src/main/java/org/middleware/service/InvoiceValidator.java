@@ -25,6 +25,10 @@ public class InvoiceValidator {
         requireText(errors, invoice.isf, "L'ISF est obligatoire");
         requireText(errors, invoice.currency, "La devise est obligatoire");
 
+        if (invoice.type != null && !isOneOf(invoice.type.toUpperCase(), "FV", "EV", "FT", "FA", "EA", "ET")) {
+            errors.add("Le type de facture doit etre FV, EV, FT, FA, EA ou ET");
+        }
+
         if (invoice.mode != null && !isOneOf(invoice.mode.toLowerCase(), "ht", "ttc")) {
             errors.add("Le mode doit être 'ht' ou 'ttc'");
         }
@@ -54,7 +58,7 @@ public class InvoiceValidator {
             }
         }
 
-        if ("AV".equalsIgnoreCase(invoice.type)) {
+        if ("FA".equalsIgnoreCase(invoice.type) || "EA".equalsIgnoreCase(invoice.type)) {
             requireText(errors, invoice.reference, "La référence de la facture originale est obligatoire pour un avoir");
             requireText(errors, invoice.referenceType, "Le type de référence est obligatoire pour un avoir");
         }

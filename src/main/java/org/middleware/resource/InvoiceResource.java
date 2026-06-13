@@ -696,7 +696,7 @@ public class InvoiceResource {
         int commentOffset = hasExcelCommentColumns(row) ? EXCEL_COMMENT_COLUMN_COUNT : 0;
 
         if (isEmptyCell(row.getCell(base))) return "RN manquant";
-        if (isEmptyCell(row.getCell(base + 1))) return "TYPE manquant - doit etre FA, FC ou FE";
+        if (isEmptyCell(row.getCell(base + 1))) return "TYPE manquant - doit etre FV, EV, FT, FA, EA ou ET";
         if (isEmptyCell(row.getCell(base + 2))) return "CLIENT_NIF manquant";
         if (isEmptyCell(row.getCell(base + 3))) return "CLIENT_NAME manquant";
         if (isEmptyCell(row.getCell(base + 4))) return "CLIENT_TYPE manquant";
@@ -710,8 +710,8 @@ public class InvoiceResource {
         if (isEmptyCell(row.getCell(base + 16))) return "MODE manquant - ht ou ttc";
 
         String type = getStringCellValue(row.getCell(base + 1));
-        if (type != null && !Arrays.asList("FA", "FC", "FE").contains(type.toUpperCase())) {
-            return "TYPE invalide. Doit etre: FA, FC ou FE";
+        if (type != null && !Arrays.asList("FV", "EV", "FT", "FA", "EA", "ET").contains(type.toUpperCase())) {
+            return "TYPE invalide. Doit etre: FV, EV, FT, FA, EA ou ET";
         }
 
         String clientType = getStringCellValue(row.getCell(base + 4));
@@ -757,7 +757,7 @@ public class InvoiceResource {
         Cell quantityCell = row.getCell(base + 8);
         if (quantityCell != null && quantityCell.getCellType() == CellType.NUMERIC) {
             double quantity = quantityCell.getNumericCellValue();
-            if (quantity == 0 && !"FE".equalsIgnoreCase(type)) {
+            if (quantity == 0) {
                 return "ITEM_QUANTITY doit etre non-zero";
             }
         }
