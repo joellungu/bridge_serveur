@@ -21,6 +21,12 @@ public class DgiInvoiceRequest {
     public LocalDateTime validityDate;
     public String cmta;
     public String cmtb;
+    public String cmtc;
+    public String cmtd;
+    public String cmte;
+    public String cmtf;
+    public String cmtg;
+    public String cmth;
     public Client client;
     public List<Item> items;
     public List<Payment> payments;
@@ -44,6 +50,12 @@ public class DgiInvoiceRequest {
         request.validityDate = invoice.validityDate;
         request.cmta = invoice.cmta;
         request.cmtb = invoice.cmtb;
+        request.cmtc = invoice.cmtc;
+        request.cmtd = invoice.cmtd;
+        request.cmte = invoice.cmte;
+        request.cmtf = invoice.cmtf;
+        request.cmtg = invoice.cmtg;
+        request.cmth = invoice.cmth;
         request.reference = invoice.reference;
         request.referenceType = invoice.referenceType;
         request.referenceDesc = invoice.referenceDesc;

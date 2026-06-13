@@ -23,11 +23,14 @@ import jakarta.enterprise.context.ApplicationScoped;
 @ApplicationScoped
 public class ExcelTraitement {
 
-    private static final String[] ROOT_HEADERS = {"EMAIL", "UID", "NIF", "COMPANY_NAME", "ISF"};
-    private static final String[] RESULT_HEADERS = {"ERROR_CODE", "ERROR_DESC", "DATE_TIME", "QR_CODE", "CODE_DEF_DGI", "COUNTERS", "NIM"};
+    private static final String[] ROOT_HEADERS = {"EMAIL", "NIF", "COMPANY_NAME", "ISF"};
+    private static final String[] COMMENT_HEADERS = {"CMTA", "CMTB", "CMTC", "CMTD", "CMTE", "CMTF", "CMTG", "CMTH"};
+    private static final String[] RESULT_HEADERS = {"UID", "TOTAL", "CUR_TOTAL", "VTOTAL", "ERROR_CODE", "ERROR_DESC", "DATE_TIME", "QR_CODE", "CODE_DEF_DGI", "COUNTERS", "NIM"};
     private static final int ROOT_COLUMN_COUNT = ROOT_HEADERS.length;
+    private static final int COMMENT_COLUMN_COUNT = COMMENT_HEADERS.length;
     private static final int RN_COLUMN = ROOT_COLUMN_COUNT;
-    private static final int RESULT_COLUMN = ROOT_COLUMN_COUNT + 23;
+    private static final int COMMENT_COLUMN = ROOT_COLUMN_COUNT + 17;
+    private static final int RESULT_COLUMN = ROOT_COLUMN_COUNT + 31;
 
     /**
      * Met à jour le fichier Excel avec les données des factures normalisées
@@ -75,7 +78,6 @@ public class ExcelTraitement {
         int colIndex = 0;
         
         setCellValue(row, colIndex++, invoice.email);
-        setCellValue(row, colIndex++, invoice.uid);
         setCellValue(row, colIndex++, invoice.nif);
         setCellValue(row, colIndex++, invoice.companyName);
         setCellValue(row, colIndex++, invoice.isf);
@@ -97,9 +99,7 @@ public class ExcelTraitement {
         
         // Si la facture a plusieurs items, on prend le premier pour la mise à jour
         // (ou vous pouvez adapter selon votre logique métier)
-        InvoiceEntity.Item item = invoice.items != null && !invoice.items.isEmpty() 
-                ? invoice.items.get(0) 
-                : null;
+        InvoiceEntity.Item item = findMatchingItem(row, invoice);
         
         // Colonne F: itemCode
         setCellValue(row, colIndex++, item != null ? item.code : null);
@@ -146,6 +146,15 @@ public class ExcelTraitement {
         
         // Colonne Q: mode
         setCellValue(row, colIndex++, invoice.mode);
+
+        setCellValue(row, colIndex++, invoice.cmta);
+        setCellValue(row, colIndex++, invoice.cmtb);
+        setCellValue(row, colIndex++, invoice.cmtc);
+        setCellValue(row, colIndex++, invoice.cmtd);
+        setCellValue(row, colIndex++, invoice.cmte);
+        setCellValue(row, colIndex++, invoice.cmtf);
+        setCellValue(row, colIndex++, invoice.cmtg);
+        setCellValue(row, colIndex++, invoice.cmth);
         
         // Colonne R: reference
         setCellValue(row, colIndex++, invoice.reference);
@@ -165,7 +174,12 @@ public class ExcelTraitement {
         // Colonne W: curRate
         setCellValue(row, colIndex++, invoice.curRate);
         
-        // Colonne X: errorCode
+        setCellValue(row, colIndex++, invoice.uid);
+        setCellValue(row, colIndex++, invoice.total);
+        setCellValue(row, colIndex++, invoice.curTotal);
+        setCellValue(row, colIndex++, invoice.vtotal);
+
+        // Colonne reponse DGI: errorCode
         setCellValue(row, colIndex++, invoice.errorCode);
         
         // Colonne Y: errorDesc
@@ -190,6 +204,26 @@ public class ExcelTraitement {
         updateCalculatedFields(row, invoice);
     }
 
+    private InvoiceEntity.Item findMatchingItem(Row row, InvoiceEntity invoice) {
+        if (invoice.items == null || invoice.items.isEmpty()) {
+            return null;
+        }
+
+        String itemCode = getStringCellValue(row.getCell(ROOT_COLUMN_COUNT + 5));
+        String itemName = getStringCellValue(row.getCell(ROOT_COLUMN_COUNT + 6));
+        for (InvoiceEntity.Item item : invoice.items) {
+            if (itemCode != null && item.code != null && itemCode.equalsIgnoreCase(item.code)) {
+                return item;
+            }
+        }
+        for (InvoiceEntity.Item item : invoice.items) {
+            if (itemName != null && item.name != null && itemName.equalsIgnoreCase(item.name)) {
+                return item;
+            }
+        }
+        return invoice.items.get(0);
+    }
+
     private void ensureInvoiceEntityColumns(Sheet sheet) {
         Row header = sheet.getRow(0);
         if (header == null) {
@@ -198,9 +232,15 @@ public class ExcelTraitement {
 
         String firstHeader = getStringCellValue(header.getCell(0));
         if ("EMAIL".equalsIgnoreCase(firstHeader)) {
+            String secondHeader = getStringCellValue(header.getCell(1));
+            if ("UID".equalsIgnoreCase(secondHeader)) {
+                shiftColumnsLeft(sheet, 1, 1);
+                header = sheet.getRow(0);
+            }
             for (int i = 0; i < ROOT_HEADERS.length; i++) {
                 setCellValue(header, i, ROOT_HEADERS[i]);
             }
+            ensureCommentColumns(sheet);
             setResultHeaders(header);
             return;
         }
@@ -229,7 +269,75 @@ public class ExcelTraitement {
         for (int i = 0; i < ROOT_HEADERS.length; i++) {
             setCellValue(header, i, ROOT_HEADERS[i]);
         }
+        ensureCommentColumns(sheet);
         setResultHeaders(header);
+    }
+
+    private void ensureCommentColumns(Sheet sheet) {
+        Row header = sheet.getRow(0);
+        String firstCommentHeader = getStringCellValue(header.getCell(COMMENT_COLUMN));
+        if ("CMTA".equalsIgnoreCase(firstCommentHeader)) {
+            setCommentHeaders(header);
+            return;
+        }
+
+        shiftColumnsRight(sheet, COMMENT_COLUMN, COMMENT_COLUMN_COUNT);
+        header = sheet.getRow(0);
+        setCommentHeaders(header);
+    }
+
+    private void setCommentHeaders(Row header) {
+        for (int i = 0; i < COMMENT_HEADERS.length; i++) {
+            setCellValue(header, COMMENT_COLUMN + i, COMMENT_HEADERS[i]);
+        }
+    }
+
+    private void shiftColumnsRight(Sheet sheet, int startColumn, int columnCount) {
+        for (int rowNum = 0; rowNum <= sheet.getLastRowNum(); rowNum++) {
+            Row row = sheet.getRow(rowNum);
+            if (row == null) {
+                row = sheet.createRow(rowNum);
+            }
+
+            int lastCell = Math.max(row.getLastCellNum(), 0);
+            for (int col = lastCell - 1; col >= startColumn; col--) {
+                Cell oldCell = row.getCell(col);
+                Cell newCell = row.getCell(col + columnCount);
+                if (newCell == null) {
+                    newCell = row.createCell(col + columnCount);
+                }
+                copyCellValue(oldCell, newCell);
+                if (oldCell != null) {
+                    oldCell.setBlank();
+                }
+            }
+        }
+    }
+
+    private void shiftColumnsLeft(Sheet sheet, int startColumn, int columnCount) {
+        for (int rowNum = 0; rowNum <= sheet.getLastRowNum(); rowNum++) {
+            Row row = sheet.getRow(rowNum);
+            if (row == null) {
+                continue;
+            }
+
+            int lastCell = Math.max(row.getLastCellNum(), 0);
+            for (int col = startColumn; col < lastCell; col++) {
+                Cell source = row.getCell(col + columnCount);
+                Cell target = row.getCell(col);
+                if (target == null) {
+                    target = row.createCell(col);
+                }
+                copyCellValue(source, target);
+            }
+
+            for (int col = Math.max(lastCell - columnCount, startColumn); col < lastCell; col++) {
+                Cell cell = row.getCell(col);
+                if (cell != null) {
+                    cell.setBlank();
+                }
+            }
+        }
     }
 
     private void setResultHeaders(Row header) {

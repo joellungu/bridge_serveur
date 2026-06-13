@@ -130,6 +130,24 @@ public class InvoiceEntity extends PanacheEntityBase {
     @Column(name = "cmtb")
     public String cmtb;
 
+    @Column(name = "cmtc")
+    public String cmtc;
+
+    @Column(name = "cmtd")
+    public String cmtd;
+
+    @Column(name = "cmte")
+    public String cmte;
+
+    @Column(name = "cmtf")
+    public String cmtf;
+
+    @Column(name = "cmtg")
+    public String cmtg;
+
+    @Column(name = "cmth")
+    public String cmth;
+
     // === DEVISES ===
     @Column(name = "cur_code", length = 3)
     public String curCode;

@@ -10,6 +10,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.logging.Level;
@@ -64,7 +65,8 @@ public class InvoiceResource {
     private static final Logger LOG = Logger.getLogger(InvoiceResource.class.getName());
     private static final String XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     private static final String XLSX_REQUIRED_MESSAGE = "Le fichier doit etre un fichier Excel .xlsx";
-    private static final int EXCEL_ROOT_COLUMN_COUNT = 5;
+    private static final int EXCEL_ROOT_COLUMN_COUNT = 4;
+    private static final int EXCEL_COMMENT_COLUMN_COUNT = 8;
 
     @Context
     ContainerRequestContext requestContext;
@@ -88,7 +90,7 @@ public class InvoiceResource {
     @GET
     @Path("/all")
     public List<InvoiceEntity> list2() {
-        
+
         //
         List<InvoiceEntity> invoices = InvoiceEntity.listAll();
         //
@@ -119,7 +121,7 @@ public class InvoiceResource {
 
     /**
      * Soumet une facture à la DGI (Phase 1 + Phase 2)
-     * 
+     *
      * @param invoice La facture à soumettre
      * @return Réponse contenant l'InvoiceEntity mise à jour avec statut et erreurs
      */
@@ -130,7 +132,7 @@ public class InvoiceResource {
     public Response requestInvoice(InvoiceEntity invoice) {
         try {
             LOG.info("=== Réception soumission facture RN=" + (invoice != null ? invoice.rn : "null") + " ===");
-            
+
             // 1. Validation de base
             if (invoice == null || invoice.rn == null || invoice.rn.trim().isEmpty()) {
                 return Response.status(Response.Status.BAD_REQUEST)
@@ -155,7 +157,7 @@ public class InvoiceResource {
                         .build();
             }
 
-            // 3. Vérifier si la facture existe déjà
+            // 3. Verifier si la facture existe deja
             InvoiceEntity existingInvoice = InvoiceEntity.find("nif = ?1 and rn = ?2", entreprise.nif, invoice.rn).firstResult();
 
             InvoiceEntity invoiceToProcess;
@@ -179,7 +181,7 @@ public class InvoiceResource {
             } else {
                 // Facture existante
                 LOG.info("Facture existante: " + invoice.rn + " (Status: " + existingInvoice.status + ")");
-                
+
                 // Vérifier si elle peut être retraitée
                 if ("CONFIRMED".equals(existingInvoice.status)) {
                     return Response.status(200)
@@ -187,7 +189,7 @@ public class InvoiceResource {
                                     "Cette facture a déjà été confirmée par la DGI"))
                             .build();
                 }
-                
+
                 invoiceToProcess = existingInvoice;
             }
 
@@ -213,7 +215,7 @@ public class InvoiceResource {
 
     /**
      * Soumet un lot de factures à la DGI (Phase 1 + Phase 2 pour chaque facture)
-     * 
+     *
      * @param invoices Liste des factures à soumettre
      * @return Réponse contenant le résumé du traitement par lot avec succès et échecs
      */
@@ -225,7 +227,7 @@ public class InvoiceResource {
     public Response requestBatchInvoices(List<InvoiceEntity> invoices) {
         try {
             LOG.info("=== Réception traitement par lot de " + (invoices != null ? invoices.size() : 0) + " factures ===");
-            
+
             // 1. Validation de base
             if (invoices == null || invoices.isEmpty()) {
                 return Response.status(Response.Status.BAD_REQUEST)
@@ -268,7 +270,7 @@ public class InvoiceResource {
 
                     LOG.info("Traitement facture lot: " + invoice.rn);
 
-                    // Vérifier si la facture existe déjà
+                    // Verifier si la facture existe deja
                     InvoiceEntity existingInvoice = InvoiceEntity.find("nif = ?1 and rn = ?2", entreprise.nif, invoice.rn).firstResult();
 
                     InvoiceEntity invoiceToProcess;
@@ -338,11 +340,11 @@ public class InvoiceResource {
             batchResponse.put("totalSubmitted", invoices.size());
             batchResponse.put("totalSuccess", successResults.size());
             batchResponse.put("totalFailed", failureResults.size());
-            batchResponse.put("successRate", String.format("%.2f%%", 
+            batchResponse.put("successRate", String.format("%.2f%%",
                 (successResults.size() * 100.0 / invoices.size())));
             batchResponse.put("success", successResults);
             batchResponse.put("failures", failureResults);
-            batchResponse.put("message", successResults.size() + " factures traitées avec succès, " 
+            batchResponse.put("message", successResults.size() + " factures traitées avec succès, "
                 + failureResults.size() + " échecs");
 
             LOG.info("=== Traitement par lot terminé: " + successResults.size() + "/" + invoices.size() + " succès ===");
@@ -360,7 +362,7 @@ public class InvoiceResource {
 
     /**
      * Récupère les détails d'une facture par son UID
-     * 
+     *
      * @param uid L'identifiant unique de la facture
      * @return La facture complète avec tous ses détails
      */
@@ -422,7 +424,7 @@ public class InvoiceResource {
             // Récupérer l'entreprise connectée
             String email = jwt.getClaim("email");
             Entreprise entreprise = Entreprise.find("email", email).firstResult();
-            
+
             if (entreprise == null) {
                 return Response.status(Response.Status.UNAUTHORIZED)
                     .entity("{\"error\": \"Entreprise non trouvée\"}")
@@ -432,21 +434,20 @@ public class InvoiceResource {
             // Lire le fichier Excel
             Workbook workbook = openXlsxWorkbook(data);
             Sheet sheet = workbook.getSheetAt(0); // Première feuille
-            
-            List<InvoiceEntity> invoices = new ArrayList<>();
+
+            Map<String, InvoiceEntity> invoiceByRn = new LinkedHashMap<>();
             List<String> errors = new ArrayList<>();
-            int successCount = 0;
-            
+
             // Parcourir les lignes (en sautant l'en-tête)
             Iterator<Row> rowIterator = sheet.iterator();
             if (rowIterator.hasNext()) {
                 rowIterator.next(); // Sauter l'en-tête
             }
-            
+
             int rowNum = 2; // Commence à la ligne 2 (après l'en-tête)
             while (rowIterator.hasNext()) {
                 Row row = rowIterator.next();
-                
+
                 try {
                     // Valider la ligne avant création
                     String validationError = validateRow(row);
@@ -455,36 +456,42 @@ public class InvoiceResource {
                         rowNum++;
                         continue;
                     }
-                    
+
                     InvoiceEntity invoice = createInvoiceFromRow(row, entreprise);
-                    
+
                     // Calculer les montants
-                    calculateInvoiceAmounts(invoice);
-                    
+                    mergeInvoiceLine(invoiceByRn, invoice);
+
                     // Persister la facture
-                    invoice.persist();
-                    
+
+
                     // Envoyer à l'API DGI (asynchrone ou synchrone selon besoin)
-                    sendToDGINormalization(invoice, entreprise.dgiToken);
-                    
-                    invoices.add(invoice);
-                    successCount++;
-                    
+
+
+
+
                 } catch (Exception e) {
                     errors.add("Ligne " + rowNum + ": " + e.getMessage());
                     e.printStackTrace(); // Pour le débogage
                 }
                 rowNum++;
             }
-            
+
             workbook.close();
-            
+            List<InvoiceEntity> invoices = new ArrayList<>(invoiceByRn.values());
+            for (InvoiceEntity invoice : invoices) {
+                calculateInvoiceAmounts(invoice);
+                invoice.persist();
+                sendToDGINormalization(invoice, entreprise.dgiToken);
+            }
+            int successCount = invoices.size();
+
             // Préparer la réponse
             String responseMessage = String.format(
                 "Import terminé. %d factures créées avec succès. %d erreurs.",
                 successCount, errors.size()
             );
-            
+
             if (!errors.isEmpty()) {
                 return Response.status(Response.Status.PARTIAL_CONTENT)
                     .entity(new UploadResponse(responseMessage, errors, invoices.stream()
@@ -495,18 +502,18 @@ public class InvoiceResource {
 
             // Mettre à jour le fichier Excel
         byte[] updatedExcel = excelTraitement.updateExcelFromInvoiceEntities(invoices, data);
-        
+
         // Retourner le fichier mis à jour
         return Response.ok(updatedExcel)
                 .header("Content-Disposition", "attachment; filename=\"factures_mise_a_jour.xlsx\"")
                 .type(XLSX_MEDIA_TYPE)
                 .build();
-            
+
             // return Response.ok(new UploadResponse(responseMessage, null, invoices.stream()
             //         .map(inv -> inv.rn)
             //         .toList()))
             //     .build();
-            
+
         } catch (Exception e) {
             if (isInvalidExcelException(e)) {
                 return Response.status(Response.Status.BAD_REQUEST)
@@ -521,7 +528,7 @@ public class InvoiceResource {
 
     /**
      * Soumet un fichier Excel de factures via un formulaire multipart
-     * 
+     *
      * @param file Le fichier Excel uploadé
      * @return Réponse contenant le fichier Excel mis à jour avec les résultats DGI
      */
@@ -551,7 +558,7 @@ public class InvoiceResource {
             // Récupérer l'entreprise connectée
             String email = jwt.getClaim("email");
             Entreprise entreprise = Entreprise.find("email", email).firstResult();
-            
+
             if (entreprise == null) {
                 return Response.status(Response.Status.UNAUTHORIZED)
                     .entity(ApiResponse.error("ENTREPRISE_NOT_FOUND", "Entreprise non trouvée"))
@@ -562,21 +569,20 @@ public class InvoiceResource {
             byte[] data = java.nio.file.Files.readAllBytes(file.filePath());
             Workbook workbook = openXlsxWorkbook(data);
             Sheet sheet = workbook.getSheetAt(0); // Première feuille
-            
-            List<InvoiceEntity> invoices = new ArrayList<>();
+
+            Map<String, InvoiceEntity> invoiceByRn = new LinkedHashMap<>();
             List<String> errors = new ArrayList<>();
-            int successCount = 0;
-            
+
             // Parcourir les lignes (en sautant l'en-tête)
             Iterator<Row> rowIterator = sheet.iterator();
             if (rowIterator.hasNext()) {
                 rowIterator.next(); // Sauter l'en-tête
             }
-            
+
             int rowNum = 2; // Commence à la ligne 2 (après l'en-tête)
             while (rowIterator.hasNext()) {
                 Row row = rowIterator.next();
-                
+
                 try {
                     // Valider la ligne avant création
                     String validationError = validateRow(row);
@@ -585,36 +591,42 @@ public class InvoiceResource {
                         rowNum++;
                         continue;
                     }
-                    
+
                     InvoiceEntity invoice = createInvoiceFromRow(row, entreprise);
-                    
+
                     // Calculer les montants
-                    calculateInvoiceAmounts(invoice);
-                    
+                    mergeInvoiceLine(invoiceByRn, invoice);
+
                     // Persister la facture
-                    invoice.persist();
-                    
+
+
                     // Envoyer à l'API DGI (asynchrone ou synchrone selon besoin)
-                    sendToDGINormalization(invoice, entreprise.dgiToken);
-                    
-                    invoices.add(invoice);
-                    successCount++;
-                    
+
+
+
+
                 } catch (Exception e) {
                     errors.add("Ligne " + rowNum + ": " + e.getMessage());
                     LOG.log(Level.WARNING, "Erreur traitement ligne " + rowNum, e);
                 }
                 rowNum++;
             }
-            
+
             workbook.close();
-            
+            List<InvoiceEntity> invoices = new ArrayList<>(invoiceByRn.values());
+            for (InvoiceEntity invoice : invoices) {
+                calculateInvoiceAmounts(invoice);
+                invoice.persist();
+                sendToDGINormalization(invoice, entreprise.dgiToken);
+            }
+            int successCount = invoices.size();
+
             // Préparer la réponse
             String responseMessage = String.format(
                 "Import terminé. %d factures créées avec succès. %d erreurs.",
                 successCount, errors.size()
             );
-            
+
             if (!errors.isEmpty()) {
                 return Response.status(Response.Status.PARTIAL_CONTENT)
                     .entity(new UploadResponse(responseMessage, errors, invoices.stream()
@@ -625,13 +637,13 @@ public class InvoiceResource {
 
             // Mettre à jour le fichier Excel
             byte[] updatedExcel = excelTraitement.updateExcelFromInvoiceEntities(invoices, data);
-            
+
             // Retourner le fichier mis à jour
             return Response.ok(updatedExcel)
                     .header("Content-Disposition", "attachment; filename=\"factures_mise_a_jour.xlsx\"")
                     .type(XLSX_MEDIA_TYPE)
                     .build();
-            
+
         } catch (Exception e) {
             if (isInvalidExcelException(e)) {
                 return Response.status(Response.Status.BAD_REQUEST)
@@ -669,6 +681,7 @@ public class InvoiceResource {
 
     private String validateRow(Row row) {
         int base = getInvoiceExcelBaseColumn(row);
+        int commentOffset = hasExcelCommentColumns(row) ? EXCEL_COMMENT_COLUMN_COUNT : 0;
 
         if (isEmptyCell(row.getCell(base))) return "RN manquant";
         if (isEmptyCell(row.getCell(base + 1))) return "TYPE manquant - doit etre FA, FC ou FE";
@@ -680,7 +693,7 @@ public class InvoiceResource {
         if (isEmptyCell(row.getCell(base + 7))) return "ITEM_PRICE manquant";
         if (isEmptyCell(row.getCell(base + 8))) return "ITEM_QUANTITY manquante";
         if (isEmptyCell(row.getCell(base + 9))) return "ITEM_TAX_GROUP manquant";
-        if (isEmptyCell(row.getCell(base + 10))) return "ITEM_ARTICLE_TYPE manquant - P ou S";
+        if (isEmptyCell(row.getCell(base + 10))) return "ITEM_ARTICLE_TYPE manquant - BIE, SER ou TAX";
         if (isEmptyCell(row.getCell(base + 12))) return "CURRENCY manquante";
 
         String type = getStringCellValue(row.getCell(base + 1));
@@ -694,9 +707,9 @@ public class InvoiceResource {
             return "CLIENT_TYPE invalide. Doit etre: PE, PM, PC, PL, AO ou PP";
         }
 
-        String articleType = getStringCellValue(row.getCell(base + 10));
-        if (articleType != null && !Arrays.asList("P", "S", "BIE", "SER").contains(articleType.toUpperCase())) {
-            return "ITEM_ARTICLE_TYPE invalide. Doit etre: P (Produit) ou S (Service)";
+        String articleType = normalizeItemType(getStringCellValue(row.getCell(base + 10)));
+        if (articleType == null) {
+            return "ITEM_ARTICLE_TYPE invalide. Doit etre: BIEN/BIE, SERVICE/SER ou TAXE/TAX";
         }
 
         String taxGroup = getStringCellValue(row.getCell(base + 9));
@@ -729,7 +742,7 @@ public class InvoiceResource {
             }
         }
 
-        Cell curRateCell = row.getCell(base + 22);
+        Cell curRateCell = row.getCell(base + 22 + commentOffset);
         if (curRateCell != null && curRateCell.getCellType() == CellType.NUMERIC) {
             double curRate = curRateCell.getNumericCellValue();
             if (curRate < 0) {
@@ -742,12 +755,13 @@ public class InvoiceResource {
     private InvoiceEntity createInvoiceFromRow(Row row, Entreprise entreprise) {
         InvoiceEntity invoice = new InvoiceEntity();
         int base = getInvoiceExcelBaseColumn(row);
+        int commentOffset = hasExcelCommentColumns(row) ? EXCEL_COMMENT_COLUMN_COUNT : 0;
 
-        invoice.email = firstNonBlank(base == EXCEL_ROOT_COLUMN_COUNT ? getStringCellValue(row.getCell(0)) : null, entreprise.email);
-        invoice.uid = base == EXCEL_ROOT_COLUMN_COUNT ? getStringCellValue(row.getCell(1)) : null;
-        invoice.nif = firstNonBlank(base == EXCEL_ROOT_COLUMN_COUNT ? getStringCellValue(row.getCell(2)) : null, entreprise.nif);
-        invoice.companyName = firstNonBlank(base == EXCEL_ROOT_COLUMN_COUNT ? getStringCellValue(row.getCell(3)) : null, entreprise.nom);
-        invoice.isf = firstNonBlank(base == EXCEL_ROOT_COLUMN_COUNT ? getStringCellValue(row.getCell(4)) : null, entreprise.isf);
+        invoice.email = firstNonBlank(base > 0 ? getStringCellValue(row.getCell(0)) : null, entreprise.email);
+        invoice.uid = null;
+        invoice.nif = firstNonBlank(base > 0 ? getStringCellValue(row.getCell(base - 3)) : null, entreprise.nif);
+        invoice.companyName = firstNonBlank(base > 0 ? getStringCellValue(row.getCell(base - 2)) : null, entreprise.nom);
+        invoice.isf = firstNonBlank(base > 0 ? getStringCellValue(row.getCell(base - 1)) : null, entreprise.isf);
 
         invoice.rn = getStringCellValue(row.getCell(base));
         invoice.type = getStringCellValue(row.getCell(base + 1));
@@ -763,7 +777,7 @@ public class InvoiceResource {
         InvoiceEntity.Item item = new InvoiceEntity.Item();
         item.code = getStringCellValue(row.getCell(base + 5));
         item.name = getStringCellValue(row.getCell(base + 6));
-        item.type = getStringCellValue(row.getCell(base + 10));
+        item.type = normalizeItemType(getStringCellValue(row.getCell(base + 10)));
         item.price = getNumericCellValue(row.getCell(base + 7));
         item.quantity = getNumericCellValue(row.getCell(base + 8));
         item.unit = getStringCellValue(row.getCell(base + 13));
@@ -774,12 +788,23 @@ public class InvoiceResource {
         invoice.items = new ArrayList<>();
         invoice.items.add(item);
 
-        invoice.reference = getStringCellValue(row.getCell(base + 17));
-        invoice.referenceType = getStringCellValue(row.getCell(base + 18));
-        invoice.referenceDesc = getStringCellValue(row.getCell(base + 19));
+        if (commentOffset > 0) {
+            invoice.cmta = getStringCellValue(row.getCell(base + 17));
+            invoice.cmtb = getStringCellValue(row.getCell(base + 18));
+            invoice.cmtc = getStringCellValue(row.getCell(base + 19));
+            invoice.cmtd = getStringCellValue(row.getCell(base + 20));
+            invoice.cmte = getStringCellValue(row.getCell(base + 21));
+            invoice.cmtf = getStringCellValue(row.getCell(base + 22));
+            invoice.cmtg = getStringCellValue(row.getCell(base + 23));
+            invoice.cmth = getStringCellValue(row.getCell(base + 24));
+        }
 
-        invoice.curCode = getStringCellValue(row.getCell(base + 20));
-        String curDateStr = getStringCellValue(row.getCell(base + 21));
+        invoice.reference = getStringCellValue(row.getCell(base + 17 + commentOffset));
+        invoice.referenceType = getStringCellValue(row.getCell(base + 18 + commentOffset));
+        invoice.referenceDesc = getStringCellValue(row.getCell(base + 19 + commentOffset));
+
+        invoice.curCode = getStringCellValue(row.getCell(base + 20 + commentOffset));
+        String curDateStr = getStringCellValue(row.getCell(base + 21 + commentOffset));
         if (curDateStr != null && !curDateStr.isEmpty()) {
             try {
                 invoice.curDate = parseDate(curDateStr);
@@ -787,7 +812,7 @@ public class InvoiceResource {
                 invoice.curDate = LocalDateTime.now();
             }
         }
-        String curRateStr = getStringCellValue(row.getCell(base + 22));
+        String curRateStr = getStringCellValue(row.getCell(base + 22 + commentOffset));
         if (curRateStr != null && !curRateStr.isEmpty()) {
             try {
                 invoice.curRate = new BigDecimal(curRateStr);
@@ -813,10 +838,59 @@ public class InvoiceResource {
         return invoice;
     }
 
+    private void mergeInvoiceLine(Map<String, InvoiceEntity> invoiceByRn, InvoiceEntity invoiceLine) {
+        if (invoiceLine == null || invoiceLine.rn == null || invoiceLine.rn.isBlank()) {
+            return;
+        }
+
+        InvoiceEntity existing = invoiceByRn.get(invoiceLine.rn);
+        if (existing == null) {
+            invoiceByRn.put(invoiceLine.rn, invoiceLine);
+            return;
+        }
+
+        if (invoiceLine.items != null && !invoiceLine.items.isEmpty()) {
+            existing.items.addAll(invoiceLine.items);
+        }
+
+        existing.cmta = firstNonBlank(existing.cmta, invoiceLine.cmta);
+        existing.cmtb = firstNonBlank(existing.cmtb, invoiceLine.cmtb);
+        existing.cmtc = firstNonBlank(existing.cmtc, invoiceLine.cmtc);
+        existing.cmtd = firstNonBlank(existing.cmtd, invoiceLine.cmtd);
+        existing.cmte = firstNonBlank(existing.cmte, invoiceLine.cmte);
+        existing.cmtf = firstNonBlank(existing.cmtf, invoiceLine.cmtf);
+        existing.cmtg = firstNonBlank(existing.cmtg, invoiceLine.cmtg);
+        existing.cmth = firstNonBlank(existing.cmth, invoiceLine.cmth);
+    }
+
     private int getInvoiceExcelBaseColumn(Row row) {
         Row header = row != null && row.getSheet() != null ? row.getSheet().getRow(0) : null;
         String firstHeader = header != null ? getStringCellValue(header.getCell(0)) : null;
-        return "EMAIL".equalsIgnoreCase(firstHeader) ? EXCEL_ROOT_COLUMN_COUNT : 0;
+        if (!"EMAIL".equalsIgnoreCase(firstHeader)) {
+            return 0;
+        }
+        String secondHeader = getStringCellValue(header.getCell(1));
+        return "UID".equalsIgnoreCase(secondHeader) ? EXCEL_ROOT_COLUMN_COUNT + 1 : EXCEL_ROOT_COLUMN_COUNT;
+    }
+
+    private boolean hasExcelCommentColumns(Row row) {
+        Row header = row != null && row.getSheet() != null ? row.getSheet().getRow(0) : null;
+        int base = getInvoiceExcelBaseColumn(row);
+        String firstCommentHeader = header != null ? getStringCellValue(header.getCell(base + 17)) : null;
+        return "CMTA".equalsIgnoreCase(firstCommentHeader);
+    }
+
+    private String normalizeItemType(String rawType) {
+        if (rawType == null || rawType.isBlank()) {
+            return null;
+        }
+
+        return switch (rawType.trim().toUpperCase()) {
+            case "BIEN", "BIE" -> "BIE";
+            case "SERVICE", "SER" -> "SER";
+            case "TAXE", "TAX" -> "TAX";
+            default -> null;
+        };
     }
 
     private String firstNonBlank(String preferred, String fallback) {
@@ -836,20 +910,20 @@ public class InvoiceResource {
         } catch (Exception e) {
             // Continuer
         }
-        
+
         try {
             // Essayer format ISO YYYY-MM-DD
             return LocalDateTime.parse(dateStr + "T00:00:00");
         } catch (Exception e) {
             // Continuer
         }
-        
+
         return LocalDateTime.now();
     }
 
     private String getClientTypeDescription(String clientType) {
             if (clientType == null) return "Personne Physique";
-            
+
             return switch (clientType.toUpperCase()) {
                 case "PE" -> "Personne Exploitant";
                 case "PM" -> "Personne Morale";
@@ -893,7 +967,7 @@ public class InvoiceResource {
 
     private boolean isEmptyCell(Cell cell) {
         if (cell == null) return true;
-        
+
         switch (cell.getCellType()) {
             case STRING:
                 return cell.getStringCellValue().trim().isEmpty();
@@ -912,23 +986,23 @@ public class InvoiceResource {
             invoice.vtotal = BigDecimal.ZERO;
             return;
         }
-        
+
         BigDecimal subtotal = BigDecimal.ZERO;
-        
+
         for (InvoiceEntity.Item item : invoice.items) {
             if (item.price != null && item.quantity != null) {
                 BigDecimal itemTotal = item.price.multiply(item.quantity);
                 subtotal = subtotal.add(itemTotal);
-                
+
                 // Ajouter la taxe spécifique si présente
                 if (item.taxSpecificAmount != null) {
                     subtotal = subtotal.add(item.taxSpecificAmount);
                 }
             }
         }
-        
+
         invoice.subtotal = subtotal;
-        
+
         // Ajuster selon le taux de change si différent de 1
         if (invoice.curRate != null && invoice.curRate.compareTo(BigDecimal.ONE) != 0) {
             invoice.total = subtotal.multiply(invoice.curRate);
@@ -937,7 +1011,7 @@ public class InvoiceResource {
             invoice.total = subtotal;
             invoice.curTotal = subtotal;
         }
-        
+
         // Pour vtotal (peut être différent selon votre logique fiscale)
         invoice.vtotal = invoice.total;
     }
@@ -949,7 +1023,7 @@ public class InvoiceResource {
 
             DgiService dgiService = CDI.current().select(DgiService.class).get();
             dgiService.submitInvoice(invoice, token);
-            
+
         } catch (Exception e) {
             invoice.status = "ERROR";
             invoice.errorDesc = "Exception lors de l'envoi à la DGI: " + e.getMessage();
@@ -959,7 +1033,7 @@ public class InvoiceResource {
 
     private DGIFactureDTO mapToDGIDTO(InvoiceEntity invoice) {
         DGIFactureDTO dto = new DGIFactureDTO();
-        
+
         // Mapping des champs obligatoires pour la DGI
         dto.nif = invoice.nif;
         dto.rn = invoice.rn;
@@ -970,23 +1044,31 @@ public class InvoiceResource {
         dto.subtotal = invoice.subtotal;
         dto.total = invoice.total;
         dto.issueDate = invoice.issueDate;
-        
+        dto.cmta = invoice.cmta;
+        dto.cmtb = invoice.cmtb;
+        dto.cmtc = invoice.cmtc;
+        dto.cmtd = invoice.cmtd;
+        dto.cmte = invoice.cmte;
+        dto.cmtf = invoice.cmtf;
+        dto.cmtg = invoice.cmtg;
+        dto.cmth = invoice.cmth;
+
         // Nouveaux champs pour factures d'avoir
         dto.reference = invoice.reference;
         dto.referenceType = invoice.referenceType;
         dto.referenceDesc = invoice.referenceDesc;
-        
+
         // Nouveaux champs pour devises
         dto.curCode = invoice.curCode;
         dto.curDate = invoice.curDate;
         dto.curRate = invoice.curRate;
-        
+
         // Client
         dto.clientNif = invoice.client.nif;
         dto.clientName = invoice.client.name;
         dto.clientType = invoice.client.type;
         dto.clientTypeDesc = invoice.client.typeDesc;
-        
+
         // Items
         dto.items = invoice.items.stream()
             .map(item -> {
@@ -1001,14 +1083,14 @@ public class InvoiceResource {
                 return itemDTO;
             })
             .collect(java.util.stream.Collectors.toList());
-        
+
         return dto;
     }
 
     // Méthodes utilitaires pour lire les cellules Excel
     private String getStringCellValue(Cell cell) {
         if (cell == null) return null;
-        
+
         switch (cell.getCellType()) {
             case STRING:
                 return cell.getStringCellValue().trim();
@@ -1059,7 +1141,7 @@ public class InvoiceResource {
 
     private BigDecimal getNumericCellValue(Cell cell) {
         if (cell == null) return BigDecimal.ZERO;
-        
+
         try {
             switch (cell.getCellType()) {
                 case NUMERIC:
@@ -1100,7 +1182,7 @@ public class InvoiceResource {
         @FormParam("file")
         @PartType(MediaType.APPLICATION_OCTET_STREAM)
         public InputStream file;
-        
+
         @FormParam("fileName")
         public String fileName;
     }
@@ -1112,7 +1194,7 @@ public class InvoiceResource {
         public List<String> createdInvoiceNumbers;
         public int successCount;
         public int errorCount;
-        
+
         public UploadResponse(String message, List<String> errors, List<String> createdInvoiceNumbers) {
             this.message = message;
             this.errors = errors;
@@ -1133,23 +1215,31 @@ public class InvoiceResource {
         public BigDecimal subtotal;
         public BigDecimal total;
         public LocalDateTime issueDate;
-        
+        public String cmta;
+        public String cmtb;
+        public String cmtc;
+        public String cmtd;
+        public String cmte;
+        public String cmtf;
+        public String cmtg;
+        public String cmth;
+
         // Nouveaux champs pour factures d'avoir
         public String reference;
         public String referenceType;
         public String referenceDesc;
-        
+
         // Nouveaux champs pour devises
         public String curCode;
         public LocalDateTime curDate;
         public BigDecimal curRate;
-        
+
         // Client
         public String clientNif;
         public String clientName;
         public String clientType;
         public String clientTypeDesc;
-        
+
         // Items
         public List<DGIItemDTO> items;
     }
@@ -1166,12 +1256,12 @@ public class InvoiceResource {
     // Méthode pour vérifier si une cellule contient une date
     private boolean isDateCell(Cell cell) {
         if (cell == null) return false;
-        
+
         try {
             // Vérifier le format de la cellule
             CellStyle style = cell.getCellStyle();
             String format = style.getDataFormatString();
-            
+
             // Les formats de date communs dans Excel
             return format != null && (
                 format.contains("d") || format.contains("m") || format.contains("y") ||

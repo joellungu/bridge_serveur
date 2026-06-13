@@ -48,8 +48,8 @@ public class InvoiceValidator {
                 requirePositive(errors, item.price, prefix + "le prix doit être supérieur à 0");
                 requirePositive(errors, item.quantity, prefix + "la quantité doit être supérieure à 0");
 
-                if (item.type != null && !isOneOf(item.type.toUpperCase(), "BIE", "SER")) {
-                    errors.add(prefix + "le type doit être BIE ou SER");
+                if (item.type != null && !isOneOf(item.type.toUpperCase(), "BIE", "SER", "TAX")) {
+                    errors.add(prefix + "le type doit etre BIE, SER ou TAX");
                 }
             }
         }
