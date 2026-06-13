@@ -770,6 +770,11 @@ public class InvoiceResource {
             }
         }
 
+        String taxSpecificValue = getStringCellValue(row.getCell(base + 15));
+        if (taxSpecificValue != null && !taxSpecificValue.isBlank() && !isValidTaxSpecificValue(taxSpecificValue)) {
+            return "TAX_SPECIFIC_VALUE invalide. Utilisez une valeur unitaire, ex: 100, ou un pourcentage, ex: 5%";
+        }
+
         Cell curRateCell = row.getCell(base + 22 + commentOffset);
         if (curRateCell != null && curRateCell.getCellType() == CellType.NUMERIC) {
             double curRate = curRateCell.getNumericCellValue();
@@ -810,8 +815,12 @@ public class InvoiceResource {
         item.quantity = getNumericCellValue(row.getCell(base + 8));
         item.unit = getStringCellValue(row.getCell(base + 13));
         item.taxGroup = upperTrim(getStringCellValue(row.getCell(base + 9)));
-        item.taxSpecificAmount = getNumericCellValue(row.getCell(base + 14));
-        item.taxSpecificValue = getStringCellValue(row.getCell(base + 15));
+        item.taxSpecificAmount = getOptionalPositiveAmount(row.getCell(base + 14));
+        item.taxSpecificValue = blankToNull(getStringCellValue(row.getCell(base + 15)));
+        if (item.taxSpecificAmount == null && item.taxSpecificValue == null) {
+            item.taxSpecificAmount = null;
+            item.taxSpecificValue = null;
+        }
 
         invoice.items = new ArrayList<>();
         invoice.items.add(item);
@@ -964,6 +973,23 @@ public class InvoiceResource {
 
     private String lowerTrim(String value) {
         return value == null ? null : value.trim().toLowerCase();
+    }
+
+    private String blankToNull(String value) {
+        return value == null || value.trim().isEmpty() ? null : value.trim();
+    }
+
+    private boolean isValidTaxSpecificValue(String value) {
+        String normalized = value == null ? "" : value.trim().replace(',', '.');
+        return normalized.matches("\\d+(\\.\\d+)?%?") && !"%".equals(normalized);
+    }
+
+    private BigDecimal getOptionalPositiveAmount(Cell cell) {
+        if (cell == null || isEmptyCell(cell)) {
+            return null;
+        }
+        BigDecimal value = getNumericCellValue(cell);
+        return value != null && value.compareTo(BigDecimal.ZERO) > 0 ? value : null;
     }
 
     private LocalDateTime parseDate(String dateStr) {

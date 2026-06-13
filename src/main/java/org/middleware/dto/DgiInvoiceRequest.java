@@ -1,5 +1,6 @@
 package org.middleware.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.quarkus.runtime.annotations.RegisterForReflection;
 import org.middleware.models.InvoiceEntity;
 
@@ -9,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @RegisterForReflection
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class DgiInvoiceRequest {
     public String nif;
     public String rn;
@@ -108,6 +110,7 @@ public class DgiInvoiceRequest {
     }
 
     @RegisterForReflection
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Client {
         public String nif;
         public String name;
@@ -118,6 +121,7 @@ public class DgiInvoiceRequest {
     }
 
     @RegisterForReflection
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Item {
         public String code;
         public String type;
@@ -133,6 +137,7 @@ public class DgiInvoiceRequest {
     }
 
     @RegisterForReflection
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Payment {
         public String name;
         public BigDecimal amount;
