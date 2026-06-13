@@ -707,6 +707,7 @@ public class InvoiceResource {
         if (isEmptyCell(row.getCell(base + 9))) return "ITEM_TAX_GROUP manquant";
         if (isEmptyCell(row.getCell(base + 10))) return "ITEM_ARTICLE_TYPE manquant - BIE, SER ou TAX";
         if (isEmptyCell(row.getCell(base + 12))) return "CURRENCY manquante";
+        if (isEmptyCell(row.getCell(base + 16))) return "MODE manquant - ht ou ttc";
 
         String type = getStringCellValue(row.getCell(base + 1));
         if (type != null && !Arrays.asList("FA", "FC", "FE").contains(type.toUpperCase())) {
@@ -717,6 +718,21 @@ public class InvoiceResource {
         List<String> validClientTypes = Arrays.asList("PE", "PM", "PC", "PL", "AO", "PP");
         if (clientType != null && !validClientTypes.contains(clientType.toUpperCase())) {
             return "CLIENT_TYPE invalide. Doit etre: PE, PM, PC, PL, AO ou PP";
+        }
+
+        String mode = getStringCellValue(row.getCell(base + 16));
+        if (mode != null && !Arrays.asList("ht", "ttc").contains(mode.toLowerCase())) {
+            return "MODE invalide. Doit etre: ht ou ttc";
+        }
+
+        String currency = getStringCellValue(row.getCell(base + 12));
+        if (currency != null && currency.trim().length() > 3) {
+            return "CURRENCY invalide. Utilisez un code de devise sur 3 caracteres, ex: CDF, USD, EUR";
+        }
+
+        String curCode = getStringCellValue(row.getCell(base + 20 + commentOffset));
+        if (curCode != null && !curCode.isBlank() && curCode.trim().length() > 3) {
+            return "CUR_CODE invalide. Utilisez un code de devise sur 3 caracteres, ex: CDF, USD, EUR";
         }
 
         String articleType = normalizeItemType(getStringCellValue(row.getCell(base + 10)));
@@ -776,14 +792,14 @@ public class InvoiceResource {
         invoice.isf = firstNonBlank(base > 0 ? getStringCellValue(row.getCell(base - 1)) : null, entreprise.isf);
 
         invoice.rn = getStringCellValue(row.getCell(base));
-        invoice.type = getStringCellValue(row.getCell(base + 1));
-        invoice.mode = getStringCellValue(row.getCell(base + 16));
-        invoice.currency = getStringCellValue(row.getCell(base + 12));
+        invoice.type = upperTrim(getStringCellValue(row.getCell(base + 1)));
+        invoice.mode = lowerTrim(getStringCellValue(row.getCell(base + 16)));
+        invoice.currency = upperTrim(getStringCellValue(row.getCell(base + 12)));
 
         invoice.client = new InvoiceEntity.Client();
         invoice.client.nif = getStringCellValue(row.getCell(base + 2));
         invoice.client.name = getStringCellValue(row.getCell(base + 3));
-        invoice.client.type = getStringCellValue(row.getCell(base + 4));
+        invoice.client.type = upperTrim(getStringCellValue(row.getCell(base + 4)));
         invoice.client.typeDesc = getClientTypeDescription(invoice.client.type);
 
         InvoiceEntity.Item item = new InvoiceEntity.Item();
@@ -793,7 +809,7 @@ public class InvoiceResource {
         item.price = getNumericCellValue(row.getCell(base + 7));
         item.quantity = getNumericCellValue(row.getCell(base + 8));
         item.unit = getStringCellValue(row.getCell(base + 13));
-        item.taxGroup = getStringCellValue(row.getCell(base + 9));
+        item.taxGroup = upperTrim(getStringCellValue(row.getCell(base + 9)));
         item.taxSpecificAmount = getNumericCellValue(row.getCell(base + 14));
         item.taxSpecificValue = getStringCellValue(row.getCell(base + 15));
 
@@ -815,7 +831,7 @@ public class InvoiceResource {
         invoice.referenceType = getStringCellValue(row.getCell(base + 18 + commentOffset));
         invoice.referenceDesc = getStringCellValue(row.getCell(base + 19 + commentOffset));
 
-        invoice.curCode = getStringCellValue(row.getCell(base + 20 + commentOffset));
+        invoice.curCode = upperTrim(getStringCellValue(row.getCell(base + 20 + commentOffset)));
         String curDateStr = getStringCellValue(row.getCell(base + 21 + commentOffset));
         if (curDateStr != null && !curDateStr.isEmpty()) {
             try {
@@ -940,6 +956,14 @@ public class InvoiceResource {
 
     private String firstNonBlank(String preferred, String fallback) {
         return preferred != null && !preferred.isBlank() ? preferred : fallback;
+    }
+
+    private String upperTrim(String value) {
+        return value == null ? null : value.trim().toUpperCase();
+    }
+
+    private String lowerTrim(String value) {
+        return value == null ? null : value.trim().toLowerCase();
     }
 
     private LocalDateTime parseDate(String dateStr) {

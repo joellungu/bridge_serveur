@@ -52,7 +52,7 @@ public class InvoiceEntity extends PanacheEntityBase {
     @Column(name = "company_name", length = 255)
     public String companyName;
 
-    @Column(name = "mode", length = 3)
+    @Column(name = "mode", length = 20)
     public String mode;
 
     @Column(name = "isf", length = 200)
@@ -86,7 +86,7 @@ public class InvoiceEntity extends PanacheEntityBase {
     public LocalDateTime validityDate;
 
     // === MONTANTS ET DEVISES ===
-    @Column(name = "currency", length = 3)
+    @Column(name = "currency", length = 20)
     public String currency;
 
     @Column(name = "subtotal", precision = 15, scale = 2)
@@ -149,7 +149,7 @@ public class InvoiceEntity extends PanacheEntityBase {
     public String cmth;
 
     // === DEVISES ===
-    @Column(name = "cur_code", length = 3)
+    @Column(name = "cur_code", length = 20)
     public String curCode;
 
     @Column(name = "cur_date")
@@ -205,7 +205,7 @@ public class InvoiceEntity extends PanacheEntityBase {
         @Column(name = "code")
         public String code;
 
-        @Column(name = "item_type", length = 3)
+        @Column(name = "item_type", length = 20)
         public String type;
 
         @Column(name = "name")
@@ -281,7 +281,7 @@ public class InvoiceEntity extends PanacheEntityBase {
         @Column(name = "amount", precision = 15, scale = 2)
         public BigDecimal amount;
 
-        @Column(name = "currency_code", length = 3)
+        @Column(name = "currency_code", length = 20)
         public String currencyCode;
 
         @Column(name = "currency_rate", precision = 10, scale = 4)
