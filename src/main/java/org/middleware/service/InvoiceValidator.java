@@ -40,6 +40,12 @@ public class InvoiceValidator {
             requireText(errors, invoice.client.type, "Le type du client est obligatoire");
         }
 
+        if (invoice.operator == null) {
+            errors.add("Les informations de l'operateur sont obligatoires");
+        } else {
+            requireText(errors, invoice.operator.name, "Le nom de l'operateur est obligatoire");
+        }
+
         if (invoice.items == null || invoice.items.isEmpty()) {
             errors.add("La facture doit contenir au moins un article");
         } else {

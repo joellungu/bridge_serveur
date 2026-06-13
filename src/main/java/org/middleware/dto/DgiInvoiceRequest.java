@@ -30,8 +30,9 @@ public class DgiInvoiceRequest {
     public String cmtg;
     public String cmth;
     public Client client;
+    public Operator operator;
     public List<Item> items;
-    public List<Payment> payments;
+    public List<Payment> payment;
     public String reference;
     public String referenceType;
     public String referenceDesc;
@@ -75,6 +76,12 @@ public class DgiInvoiceRequest {
             request.client.typeDesc = invoice.client.typeDesc;
         }
 
+        if (invoice.operator != null) {
+            request.operator = new Operator();
+            request.operator.id = invoice.operator.id != null ? invoice.operator.id.toString() : null;
+            request.operator.name = invoice.operator.name;
+        }
+
         request.items = new ArrayList<>();
         if (invoice.items != null) {
             for (InvoiceEntity.Item source : invoice.items) {
@@ -94,7 +101,7 @@ public class DgiInvoiceRequest {
             }
         }
 
-        request.payments = new ArrayList<>();
+        request.payment = new ArrayList<>();
         if (invoice.payments != null) {
             for (InvoiceEntity.Payment source : invoice.payments) {
                 Payment payment = new Payment();
@@ -102,8 +109,19 @@ public class DgiInvoiceRequest {
                 payment.amount = source.amount;
                 payment.currencyCode = source.currencyCode;
                 payment.currencyRate = source.currencyRate;
-                request.payments.add(payment);
+                request.payment.add(payment);
             }
+        }
+
+        if (request.payment.isEmpty()) {
+            Payment payment = new Payment();
+            payment.name = "ESPECES";
+            payment.amount = invoice.total;
+            if (invoice.currency != null && !"CDF".equalsIgnoreCase(invoice.currency)) {
+                payment.currencyCode = invoice.currency;
+                payment.currencyRate = invoice.curRate != null ? invoice.curRate : BigDecimal.ONE;
+            }
+            request.payment.add(payment);
         }
 
         return request;
@@ -118,6 +136,13 @@ public class DgiInvoiceRequest {
         public String address;
         public String type;
         public String typeDesc;
+    }
+
+    @RegisterForReflection
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class Operator {
+        public String id;
+        public String name;
     }
 
     @RegisterForReflection
