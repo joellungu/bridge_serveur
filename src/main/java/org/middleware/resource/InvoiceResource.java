@@ -458,6 +458,7 @@ public class InvoiceResource {
                     }
 
                     InvoiceEntity invoice = createInvoiceFromRow(row, entreprise);
+                    applyOwnershipValidation(invoice, entreprise);
 
                     // Calculer les montants
                     mergeInvoiceLine(invoiceByRn, invoice);
@@ -479,12 +480,17 @@ public class InvoiceResource {
 
             workbook.close();
             List<InvoiceEntity> invoices = new ArrayList<>(invoiceByRn.values());
+            int rejectedCount = 0;
             for (InvoiceEntity invoice : invoices) {
+                if (isRejectedForNormalization(invoice)) {
+                    rejectedCount++;
+                    continue;
+                }
                 calculateInvoiceAmounts(invoice);
                 invoice.persist();
                 sendToDGINormalization(invoice, entreprise.dgiToken);
             }
-            int successCount = invoices.size();
+            int successCount = invoices.size() - rejectedCount;
 
             // Préparer la réponse
             String responseMessage = String.format(
@@ -593,6 +599,7 @@ public class InvoiceResource {
                     }
 
                     InvoiceEntity invoice = createInvoiceFromRow(row, entreprise);
+                    applyOwnershipValidation(invoice, entreprise);
 
                     // Calculer les montants
                     mergeInvoiceLine(invoiceByRn, invoice);
@@ -614,12 +621,17 @@ public class InvoiceResource {
 
             workbook.close();
             List<InvoiceEntity> invoices = new ArrayList<>(invoiceByRn.values());
+            int rejectedCount = 0;
             for (InvoiceEntity invoice : invoices) {
+                if (isRejectedForNormalization(invoice)) {
+                    rejectedCount++;
+                    continue;
+                }
                 calculateInvoiceAmounts(invoice);
                 invoice.persist();
                 sendToDGINormalization(invoice, entreprise.dgiToken);
             }
-            int successCount = invoices.size();
+            int successCount = invoices.size() - rejectedCount;
 
             // Préparer la réponse
             String responseMessage = String.format(
@@ -853,6 +865,12 @@ public class InvoiceResource {
             existing.items.addAll(invoiceLine.items);
         }
 
+        if (isRejectedForNormalization(invoiceLine)) {
+            existing.status = invoiceLine.status;
+            existing.errorCode = invoiceLine.errorCode;
+            existing.errorDesc = invoiceLine.errorDesc;
+        }
+
         existing.cmta = firstNonBlank(existing.cmta, invoiceLine.cmta);
         existing.cmtb = firstNonBlank(existing.cmtb, invoiceLine.cmtb);
         existing.cmtc = firstNonBlank(existing.cmtc, invoiceLine.cmtc);
@@ -861,6 +879,33 @@ public class InvoiceResource {
         existing.cmtf = firstNonBlank(existing.cmtf, invoiceLine.cmtf);
         existing.cmtg = firstNonBlank(existing.cmtg, invoiceLine.cmtg);
         existing.cmth = firstNonBlank(existing.cmth, invoiceLine.cmth);
+    }
+
+    private void applyOwnershipValidation(InvoiceEntity invoice, Entreprise entreprise) {
+        if (invoice == null || entreprise == null) {
+            return;
+        }
+
+        boolean emailMismatch = hasText(invoice.email)
+                && hasText(entreprise.email)
+                && !invoice.email.trim().equalsIgnoreCase(entreprise.email.trim());
+        boolean nifMismatch = hasText(invoice.nif)
+                && hasText(entreprise.nif)
+                && !invoice.nif.trim().equalsIgnoreCase(entreprise.nif.trim());
+
+        if (emailMismatch || nifMismatch) {
+            invoice.status = "REJECTED";
+            invoice.errorCode = "OWNER_MISMATCH";
+            invoice.errorDesc = "Facture non envoyee a la DGI: EMAIL/NIF du fichier ne correspondent pas a l'entreprise connectee";
+        }
+    }
+
+    private boolean isRejectedForNormalization(InvoiceEntity invoice) {
+        return invoice != null && "OWNER_MISMATCH".equals(invoice.errorCode);
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 
     private int getInvoiceExcelBaseColumn(Row row) {
