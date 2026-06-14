@@ -25,12 +25,15 @@ public class ExcelTraitement {
 
     private static final String[] ROOT_HEADERS = {"EMAIL", "NIF", "COMPANY_NAME", "ISF"};
     private static final String[] COMMENT_HEADERS = {"CMTA", "CMTB", "CMTC", "CMTD", "CMTE", "CMTF", "CMTG", "CMTH"};
+    private static final String[] PAYMENT_HEADERS = {"OPERATOR_ID", "OPERATOR_NAME", "PAYMENT_NAME", "PAYMENT_AMOUNT", "PAYMENT_CURRENCY_CODE", "PAYMENT_CURRENCY_RATE"};
     private static final String[] RESULT_HEADERS = {"UID", "TOTAL", "CUR_TOTAL", "VTOTAL", "ERROR_CODE", "ERROR_DESC", "DATE_TIME", "QR_CODE", "CODE_DEF_DGI", "COUNTERS", "NIM"};
     private static final int ROOT_COLUMN_COUNT = ROOT_HEADERS.length;
     private static final int COMMENT_COLUMN_COUNT = COMMENT_HEADERS.length;
+    private static final int PAYMENT_COLUMN_COUNT = PAYMENT_HEADERS.length;
     private static final int RN_COLUMN = ROOT_COLUMN_COUNT;
     private static final int COMMENT_COLUMN = ROOT_COLUMN_COUNT + 17;
-    private static final int RESULT_COLUMN = ROOT_COLUMN_COUNT + 31;
+    private static final int PAYMENT_COLUMN = ROOT_COLUMN_COUNT + 31;
+    private static final int RESULT_COLUMN = PAYMENT_COLUMN + PAYMENT_COLUMN_COUNT;
 
     /**
      * Met à jour le fichier Excel avec les données des factures normalisées
@@ -173,6 +176,14 @@ public class ExcelTraitement {
         
         // Colonne W: curRate
         setCellValue(row, colIndex++, invoice.curRate);
+
+        setCellValue(row, colIndex++, invoice.operator != null && invoice.operator.id != null ? invoice.operator.id.toString() : null);
+        setCellValue(row, colIndex++, invoice.operator != null ? invoice.operator.name : null);
+        InvoiceEntity.Payment payment = invoice.payments != null && !invoice.payments.isEmpty() ? invoice.payments.get(0) : null;
+        setCellValue(row, colIndex++, payment != null ? payment.name : "ESPECES");
+        setCellValue(row, colIndex++, payment != null ? payment.amount : invoice.total);
+        setCellValue(row, colIndex++, payment != null ? payment.currencyCode : null);
+        setCellValue(row, colIndex++, payment != null ? payment.currencyRate : null);
         
         setCellValue(row, colIndex++, invoice.uid);
         setCellValue(row, colIndex++, invoice.total);
@@ -241,6 +252,7 @@ public class ExcelTraitement {
                 setCellValue(header, i, ROOT_HEADERS[i]);
             }
             ensureCommentColumns(sheet);
+            ensurePaymentColumns(sheet);
             setResultHeaders(header);
             return;
         }
@@ -270,6 +282,7 @@ public class ExcelTraitement {
             setCellValue(header, i, ROOT_HEADERS[i]);
         }
         ensureCommentColumns(sheet);
+        ensurePaymentColumns(sheet);
         setResultHeaders(header);
     }
 
@@ -289,6 +302,25 @@ public class ExcelTraitement {
     private void setCommentHeaders(Row header) {
         for (int i = 0; i < COMMENT_HEADERS.length; i++) {
             setCellValue(header, COMMENT_COLUMN + i, COMMENT_HEADERS[i]);
+        }
+    }
+
+    private void ensurePaymentColumns(Sheet sheet) {
+        Row header = sheet.getRow(0);
+        String firstPaymentHeader = getStringCellValue(header.getCell(PAYMENT_COLUMN));
+        if ("OPERATOR_ID".equalsIgnoreCase(firstPaymentHeader)) {
+            setPaymentHeaders(header);
+            return;
+        }
+
+        shiftColumnsRight(sheet, PAYMENT_COLUMN, PAYMENT_COLUMN_COUNT);
+        header = sheet.getRow(0);
+        setPaymentHeaders(header);
+    }
+
+    private void setPaymentHeaders(Row header) {
+        for (int i = 0; i < PAYMENT_HEADERS.length; i++) {
+            setCellValue(header, PAYMENT_COLUMN + i, PAYMENT_HEADERS[i]);
         }
     }
 

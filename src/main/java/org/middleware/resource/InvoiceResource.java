@@ -32,7 +32,6 @@ import org.middleware.models.ApiClient;
 import org.middleware.models.Entreprise;
 import org.middleware.models.InvoiceEntity;
 import org.middleware.service.DgiService;
-import org.middleware.service.ExcelTraitement;
 import org.middleware.service.InvoiceEntityResponseMapper;
 import org.middleware.service.InvoiceValidator;
 
@@ -63,19 +62,16 @@ import jakarta.ws.rs.core.SecurityContext;
 public class InvoiceResource {
 
     private static final Logger LOG = Logger.getLogger(InvoiceResource.class.getName());
-    private static final String XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     private static final String XLSX_REQUIRED_MESSAGE = "Le fichier doit etre un fichier Excel .xlsx";
     private static final int EXCEL_ROOT_COLUMN_COUNT = 4;
     private static final int EXCEL_COMMENT_COLUMN_COUNT = 8;
+    private static final int EXCEL_PAYMENT_COLUMN_COUNT = 6;
 
     @Context
     ContainerRequestContext requestContext;
 
     @Inject
     JsonWebToken jwt;
-
-    @Inject
-    ExcelTraitement excelTraitement;
 
     @Inject
     InvoiceValidator invoiceValidator;
@@ -500,25 +496,11 @@ public class InvoiceResource {
 
             if (!errors.isEmpty()) {
                 return Response.status(Response.Status.PARTIAL_CONTENT)
-                    .entity(new UploadResponse(responseMessage, errors, invoices.stream()
-                        .map(inv -> inv.rn)
-                        .toList()))
+                    .entity(new DgiUploadResponse(responseMessage, errors, invoices))
                     .build();
             }
 
-            // Mettre à jour le fichier Excel
-        byte[] updatedExcel = excelTraitement.updateExcelFromInvoiceEntities(invoices, data);
-
-        // Retourner le fichier mis à jour
-        return Response.ok(updatedExcel)
-                .header("Content-Disposition", "attachment; filename=\"factures_mise_a_jour.xlsx\"")
-                .type(XLSX_MEDIA_TYPE)
-                .build();
-
-            // return Response.ok(new UploadResponse(responseMessage, null, invoices.stream()
-            //         .map(inv -> inv.rn)
-            //         .toList()))
-            //     .build();
+            return Response.ok(new DgiUploadResponse(responseMessage, null, invoices)).build();
 
         } catch (Exception e) {
             if (isInvalidExcelException(e)) {
@@ -641,20 +623,11 @@ public class InvoiceResource {
 
             if (!errors.isEmpty()) {
                 return Response.status(Response.Status.PARTIAL_CONTENT)
-                    .entity(new UploadResponse(responseMessage, errors, invoices.stream()
-                        .map(inv -> inv.rn)
-                        .toList()))
+                    .entity(new DgiUploadResponse(responseMessage, errors, invoices))
                     .build();
             }
 
-            // Mettre à jour le fichier Excel
-            byte[] updatedExcel = excelTraitement.updateExcelFromInvoiceEntities(invoices, data);
-
-            // Retourner le fichier mis à jour
-            return Response.ok(updatedExcel)
-                    .header("Content-Disposition", "attachment; filename=\"factures_mise_a_jour.xlsx\"")
-                    .type(XLSX_MEDIA_TYPE)
-                    .build();
+            return Response.ok(new DgiUploadResponse(responseMessage, null, invoices)).build();
 
         } catch (Exception e) {
             if (isInvalidExcelException(e)) {
@@ -694,6 +667,7 @@ public class InvoiceResource {
     private String validateRow(Row row) {
         int base = getInvoiceExcelBaseColumn(row);
         int commentOffset = hasExcelCommentColumns(row) ? EXCEL_COMMENT_COLUMN_COUNT : 0;
+        int paymentOffset = hasExcelPaymentColumns(row) ? EXCEL_PAYMENT_COLUMN_COUNT : 0;
 
         if (isEmptyCell(row.getCell(base))) return "RN manquant";
         if (isEmptyCell(row.getCell(base + 1))) return "TYPE manquant - doit etre FV, EV, FT, FA, EA ou ET";
@@ -775,6 +749,14 @@ public class InvoiceResource {
             return "TAX_SPECIFIC_VALUE invalide. Utilisez une valeur unitaire, ex: 100, ou un pourcentage, ex: 5%";
         }
 
+        if (paymentOffset > 0) {
+            String paymentName = getStringCellValue(row.getCell(base + 25 + commentOffset));
+            List<String> validPaymentTypes = Arrays.asList("ESPECES", "VIREMENT", "CARTEBANCAIRE", "MOBILEMONEY", "CHEQUES", "CREDIT", "AUTRE");
+            if (paymentName != null && !paymentName.isBlank() && !validPaymentTypes.contains(paymentName.trim().toUpperCase())) {
+                return "PAYMENT_NAME invalide. Doit etre: ESPECES, VIREMENT, CARTEBANCAIRE, MOBILEMONEY, CHEQUES, CREDIT ou AUTRE";
+            }
+        }
+
         Cell curRateCell = row.getCell(base + 22 + commentOffset);
         if (curRateCell != null && curRateCell.getCellType() == CellType.NUMERIC) {
             double curRate = curRateCell.getNumericCellValue();
@@ -789,6 +771,7 @@ public class InvoiceResource {
         InvoiceEntity invoice = new InvoiceEntity();
         int base = getInvoiceExcelBaseColumn(row);
         int commentOffset = hasExcelCommentColumns(row) ? EXCEL_COMMENT_COLUMN_COUNT : 0;
+        int paymentOffset = hasExcelPaymentColumns(row) ? EXCEL_PAYMENT_COLUMN_COUNT : 0;
 
         invoice.email = firstNonBlank(base > 0 ? getStringCellValue(row.getCell(0)) : null, entreprise.email);
         invoice.uid = null;
@@ -869,8 +852,29 @@ public class InvoiceResource {
         invoice.status = "PENDING";
 
         invoice.operator = new InvoiceEntity.Operator();
-        invoice.operator.id = entreprise.id;
-        invoice.operator.name = entreprise.nom;
+        invoice.operator.id = parseUuidOrDefault(
+                paymentOffset > 0 ? getStringCellValue(row.getCell(base + 23 + commentOffset)) : null,
+                entreprise.id
+        );
+        invoice.operator.name = firstNonBlank(
+                paymentOffset > 0 ? getStringCellValue(row.getCell(base + 24 + commentOffset)) : null,
+                entreprise.nom
+        );
+
+        InvoiceEntity.Payment payment = new InvoiceEntity.Payment();
+        payment.name = upperTrim(firstNonBlank(
+                paymentOffset > 0 ? getStringCellValue(row.getCell(base + 25 + commentOffset)) : null,
+                "ESPECES"
+        ));
+        payment.amount = paymentOffset > 0 && !isEmptyCell(row.getCell(base + 26 + commentOffset))
+                ? getNumericCellValue(row.getCell(base + 26 + commentOffset))
+                : null;
+        payment.currencyCode = upperTrim(paymentOffset > 0 ? getStringCellValue(row.getCell(base + 27 + commentOffset)) : null);
+        payment.currencyRate = paymentOffset > 0 && !isEmptyCell(row.getCell(base + 28 + commentOffset))
+                ? getNumericCellValue(row.getCell(base + 28 + commentOffset))
+                : null;
+        invoice.payments = new ArrayList<>();
+        invoice.payments.add(payment);
 
         return invoice;
     }
@@ -950,6 +954,14 @@ public class InvoiceResource {
         return "CMTA".equalsIgnoreCase(firstCommentHeader);
     }
 
+    private boolean hasExcelPaymentColumns(Row row) {
+        Row header = row != null && row.getSheet() != null ? row.getSheet().getRow(0) : null;
+        int base = getInvoiceExcelBaseColumn(row);
+        int commentOffset = hasExcelCommentColumns(row) ? EXCEL_COMMENT_COLUMN_COUNT : 0;
+        String firstPaymentHeader = header != null ? getStringCellValue(header.getCell(base + 23 + commentOffset)) : null;
+        return "OPERATOR_ID".equalsIgnoreCase(firstPaymentHeader);
+    }
+
     private String normalizeItemType(String rawType) {
         if (rawType == null || rawType.isBlank()) {
             return null;
@@ -973,6 +985,17 @@ public class InvoiceResource {
 
     private String lowerTrim(String value) {
         return value == null ? null : value.trim().toLowerCase();
+    }
+
+    private UUID parseUuidOrDefault(String value, UUID fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        try {
+            return UUID.fromString(value.trim());
+        } catch (IllegalArgumentException e) {
+            return fallback;
+        }
     }
 
     private String blankToNull(String value) {
@@ -1299,6 +1322,58 @@ public class InvoiceResource {
         }
     }
 
+
+    public static class DgiUploadResponse {
+        public String message;
+        public List<String> errors;
+        public List<String> createdInvoiceNumbers;
+        public int successCount;
+        public int errorCount;
+        public List<DgiInvoiceResult> invoices;
+
+        public DgiUploadResponse(String message, List<String> errors, List<InvoiceEntity> invoices) {
+            this.message = message;
+            this.errors = errors != null ? errors : List.of();
+            this.invoices = invoices != null
+                    ? invoices.stream().map(DgiInvoiceResult::new).toList()
+                    : List.of();
+            this.createdInvoiceNumbers = this.invoices.stream().map(result -> result.rn).toList();
+            this.successCount = this.invoices.size();
+            this.errorCount = this.errors.size();
+        }
+    }
+
+    public static class DgiInvoiceResult {
+        public String rn;
+        public String status;
+        public String uid;
+        public BigDecimal total;
+        public BigDecimal curTotal;
+        public BigDecimal vtotal;
+        public String errorCode;
+        public String errorDesc;
+        public String dateTime;
+        public String qrCode;
+        public String codeDEFDGI;
+        public String counters;
+        public String nim;
+
+        public DgiInvoiceResult(InvoiceEntity invoice) {
+            this.rn = invoice.rn;
+            this.status = invoice.status;
+            this.uid = invoice.uid;
+            this.total = invoice.total;
+            this.curTotal = invoice.curTotal;
+            this.vtotal = invoice.vtotal;
+            this.errorCode = invoice.errorCode;
+            this.errorDesc = invoice.errorDesc;
+            this.dateTime = invoice.dateTime;
+            this.qrCode = invoice.qrCode;
+            this.codeDEFDGI = invoice.codeDEFDGI;
+            this.counters = invoice.counters;
+            this.nim = invoice.nim;
+        }
+    }
     // DTOs pour l'API DGI (mis à jour avec les nouveaux champs)
     public static class DGIFactureDTO {
         public String nif;

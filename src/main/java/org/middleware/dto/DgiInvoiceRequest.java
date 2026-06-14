@@ -105,8 +105,8 @@ public class DgiInvoiceRequest {
         if (invoice.payments != null) {
             for (InvoiceEntity.Payment source : invoice.payments) {
                 Payment payment = new Payment();
-                payment.name = source.name;
-                payment.amount = source.amount;
+                payment.name = source.name != null && !source.name.isBlank() ? source.name : "ESPECES";
+                payment.amount = source.amount != null ? source.amount : invoice.total;
                 payment.currencyCode = source.currencyCode;
                 payment.currencyRate = source.currencyRate;
                 request.payment.add(payment);
