@@ -163,6 +163,7 @@ public class InvoiceResource {
                 invoice.id = null;
                 invoice.email = entreprise.email;
                 invoice.nif = entreprise.nif;
+                invoice.companyName = entreprise.nom;
                 invoice.isf = entreprise.isf;
                 invoice.status = "PENDING";
                 List<String> validationErrors = invoiceValidator.validateForDgi(invoice);
@@ -275,6 +276,7 @@ public class InvoiceResource {
                         invoice.id = null;
                         invoice.email = entreprise.email;
                         invoice.nif = entreprise.nif;
+                        invoice.companyName = entreprise.nom;
                         invoice.isf = entreprise.isf;
                         invoice.status = "PENDING";
                         List<String> validationErrors = invoiceValidator.validateForDgi(invoice);
@@ -496,11 +498,11 @@ public class InvoiceResource {
 
             if (!errors.isEmpty()) {
                 return Response.status(Response.Status.PARTIAL_CONTENT)
-                    .entity(new DgiUploadResponse(responseMessage, errors, invoices))
+                    .entity(new DgiUploadResponse(responseMessage, errors, invoices, entreprise))
                     .build();
             }
 
-            return Response.ok(new DgiUploadResponse(responseMessage, null, invoices)).build();
+            return Response.ok(new DgiUploadResponse(responseMessage, null, invoices, entreprise)).build();
 
         } catch (Exception e) {
             if (isInvalidExcelException(e)) {
@@ -623,11 +625,11 @@ public class InvoiceResource {
 
             if (!errors.isEmpty()) {
                 return Response.status(Response.Status.PARTIAL_CONTENT)
-                    .entity(new DgiUploadResponse(responseMessage, errors, invoices))
+                    .entity(new DgiUploadResponse(responseMessage, errors, invoices, entreprise))
                     .build();
             }
 
-            return Response.ok(new DgiUploadResponse(responseMessage, null, invoices)).build();
+            return Response.ok(new DgiUploadResponse(responseMessage, null, invoices, entreprise)).build();
 
         } catch (Exception e) {
             if (isInvalidExcelException(e)) {
@@ -975,7 +977,7 @@ public class InvoiceResource {
         };
     }
 
-    private String firstNonBlank(String preferred, String fallback) {
+    private static String firstNonBlank(String preferred, String fallback) {
         return preferred != null && !preferred.isBlank() ? preferred : fallback;
     }
 
@@ -1331,11 +1333,11 @@ public class InvoiceResource {
         public int errorCount;
         public List<DgiInvoiceResult> invoices;
 
-        public DgiUploadResponse(String message, List<String> errors, List<InvoiceEntity> invoices) {
+        public DgiUploadResponse(String message, List<String> errors, List<InvoiceEntity> invoices, Entreprise entreprise) {
             this.message = message;
             this.errors = errors != null ? errors : List.of();
             this.invoices = invoices != null
-                    ? invoices.stream().map(DgiInvoiceResult::new).toList()
+                    ? invoices.stream().map(invoice -> new DgiInvoiceResult(invoice, entreprise)).toList()
                     : List.of();
             this.createdInvoiceNumbers = this.invoices.stream().map(result -> result.rn).toList();
             this.successCount = this.invoices.size();
@@ -1357,8 +1359,19 @@ public class InvoiceResource {
         public String codeDEFDGI;
         public String counters;
         public String nim;
+        public String companyName;
+        public String companyNif;
+        public String companyRccm;
+        public String companyAddress;
+        public String companyPhone;
+        public String companyEmail;
+        public String storeName;
+        public String isf;
+        public String operatorName;
+        public String paymentName;
+        public BigDecimal paymentAmount;
 
-        public DgiInvoiceResult(InvoiceEntity invoice) {
+        public DgiInvoiceResult(InvoiceEntity invoice, Entreprise entreprise) {
             this.rn = invoice.rn;
             this.status = invoice.status;
             this.uid = invoice.uid;
@@ -1372,6 +1385,20 @@ public class InvoiceResource {
             this.codeDEFDGI = invoice.codeDEFDGI;
             this.counters = invoice.counters;
             this.nim = invoice.nim;
+            this.companyName = firstNonBlank(invoice.companyName, entreprise != null ? entreprise.nom : null);
+            this.companyNif = firstNonBlank(invoice.nif, entreprise != null ? entreprise.nif : null);
+            this.companyRccm = entreprise != null ? entreprise.rccm : null;
+            this.companyAddress = entreprise != null ? entreprise.adresse : null;
+            this.companyPhone = entreprise != null ? entreprise.telephone : null;
+            this.companyEmail = firstNonBlank(invoice.email, entreprise != null ? entreprise.email : null);
+            this.storeName = entreprise != null ? firstNonBlank(entreprise.nomMagasin, entreprise.nom) : null;
+            this.isf = firstNonBlank(invoice.isf, entreprise != null ? entreprise.isf : null);
+            this.operatorName = invoice.operator != null ? invoice.operator.name : null;
+            if (invoice.payments != null && !invoice.payments.isEmpty()) {
+                InvoiceEntity.Payment payment = invoice.payments.get(0);
+                this.paymentName = payment.name;
+                this.paymentAmount = payment.amount != null ? payment.amount : invoice.total;
+            }
         }
     }
     // DTOs pour l'API DGI (mis à jour avec les nouveaux champs)

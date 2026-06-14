@@ -51,6 +51,10 @@ public class EntrepriseResource {
         public String email;
         public String nom;
         public String nif;
+        public String rccm;
+        public String adresse;
+        public String telephone;
+        public String nomMagasin;
         public String role;
         public String isf;
         public String token;
@@ -166,6 +170,10 @@ public class EntrepriseResource {
         Entreprise user = new Entreprise();
         user.role = dto.role;
         user.nif = dto.nif;
+        user.rccm = dto.rccm;
+        user.adresse = dto.adresse;
+        user.telephone = dto.telephone;
+        user.nomMagasin = dto.nomMagasin;
         user.email = dto.email;
         user.isf = dto.isf;
         user.password = BCrypt.hashpw(dto.password, BCrypt.gensalt());//dto.password;
@@ -197,6 +205,10 @@ public class EntrepriseResource {
         user.email = dto.email != null ? dto.email : user.email;
         user.role = dto.role;
         user.nif = dto.nif;
+        user.rccm = dto.rccm;
+        user.adresse = dto.adresse;
+        user.telephone = dto.telephone;
+        user.nomMagasin = dto.nomMagasin;
         user.email = dto.email;
         user.isf = dto.isf;
         user.password = dto.password;

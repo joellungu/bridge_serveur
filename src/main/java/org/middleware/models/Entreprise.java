@@ -20,6 +20,10 @@ public class Entreprise extends PanacheEntityBase {
     public String email;
     public String nom;
     public String nif;
+    public String rccm;
+    public String adresse;
+    public String telephone;
+    public String nomMagasin;
     public String role;
 
     public String isf;
