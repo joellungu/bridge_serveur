@@ -182,10 +182,7 @@ public class EntrepriseResource {
         user.token = dto.token;
         user.persist();
 
-        //jwtService.generateJWT(user);
-        HashMap data = new HashMap();
-        data.put("bridge_toke", jwtService.generateJWT(user));
-        data.put("data", user);
+        HashMap data = buildAuthResponse(user);
 
         return Response.created(URI.create("/users/" + user.id))
                 .entity(data)
@@ -245,12 +242,33 @@ public class EntrepriseResource {
                     .build();
         }
         // ⚠️ IMPORTANT : ne jamais renvoyer le password hash
-        entreprise.password = null;
-        HashMap data = new HashMap();
-        data.put("bridge_token", jwtService.generateJWT(entreprise));
-        data.put("data", entreprise);
+        HashMap data = buildAuthResponse(entreprise);
 
         return Response.ok(data).build();
+    }
+
+    private HashMap buildAuthResponse(Entreprise entreprise) {
+        HashMap data = new HashMap();
+        data.put("bridge_token", jwtService.generateJWT(entreprise));
+        data.put("data", toUserData(entreprise));
+        return data;
+    }
+
+    private HashMap toUserData(Entreprise entreprise) {
+        HashMap user = new HashMap();
+        user.put("id", entreprise.id != null ? entreprise.id.toString() : null);
+        user.put("email", entreprise.email);
+        user.put("nom", entreprise.nom);
+        user.put("nif", entreprise.nif);
+        user.put("rccm", entreprise.rccm);
+        user.put("adresse", entreprise.adresse);
+        user.put("telephone", entreprise.telephone);
+        user.put("nomMagasin", entreprise.nomMagasin);
+        user.put("role", entreprise.role);
+        user.put("isf", entreprise.isf);
+        user.put("token", entreprise.token);
+        user.put("dgiToken", entreprise.dgiToken);
+        return user;
     }
 
 }
