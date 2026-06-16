@@ -182,8 +182,7 @@ public class InvoiceResource {
                 // Vérifier si elle peut être retraitée
                 if ("CONFIRMED".equals(existingInvoice.status)) {
                     return Response.status(200)
-                            .entity(ApiResponse.error("INVOICE_ALREADY_CONFIRMED",
-                                    "Cette facture a déjà été confirmée par la DGI"))
+                            .entity(InvoiceEntityResponseMapper.toUserResponse(existingInvoice))
                             .build();
                 }
 
@@ -293,11 +292,10 @@ public class InvoiceResource {
                     } else {
                         // Facture existante
                         if ("CONFIRMED".equals(existingInvoice.status)) {
-                            Map<String, Object> failure = new HashMap<>();
-                            failure.put("invoiceNumber", invoice.rn);
-                            failure.put("error", "Facture déjà confirmée");
-                            failure.put("uid", existingInvoice.uid);
-                            failureResults.add(failure);
+                            Map<String, Object> success = toBatchInvoiceResult(existingInvoice, entreprise);
+                            success.put("alreadyConfirmed", true);
+                            success.put("message", "Facture deja confirmee par la DGI");
+                            successResults.add(success);
                             continue;
                         }
                         invoiceToProcess = existingInvoice;
@@ -308,19 +306,10 @@ public class InvoiceResource {
 
                     // Vérifier le résultat
                     if ("CONFIRMED".equals(processedInvoice.status)) {
-                        Map<String, Object> success = new HashMap<>();
-                        success.put("invoiceNumber", processedInvoice.rn);
-                        success.put("status", processedInvoice.status);
-                        success.put("uid", processedInvoice.uid);
-                        success.put("qrCode", processedInvoice.qrCode);
+                        Map<String, Object> success = toBatchInvoiceResult(processedInvoice, entreprise);
                         successResults.add(success);
                     } else {
-                        Map<String, Object> failure = new HashMap<>();
-                        failure.put("invoiceNumber", processedInvoice.rn);
-                        failure.put("status", processedInvoice.status);
-                        failure.put("uid", processedInvoice.uid);
-                        failure.put("errorCode", processedInvoice.errorCode);
-                        failure.put("errorDesc", processedInvoice.errorDesc);
+                        Map<String, Object> failure = toBatchInvoiceResult(processedInvoice, entreprise);
                         failureResults.add(failure);
                     }
 
@@ -479,9 +468,15 @@ public class InvoiceResource {
             workbook.close();
             List<InvoiceEntity> invoices = new ArrayList<>(invoiceByRn.values());
             int rejectedCount = 0;
-            for (InvoiceEntity invoice : invoices) {
+            for (int i = 0; i < invoices.size(); i++) {
+                InvoiceEntity invoice = invoices.get(i);
                 if (isRejectedForNormalization(invoice)) {
                     rejectedCount++;
+                    continue;
+                }
+                InvoiceEntity existingInvoice = InvoiceEntity.find("nif = ?1 and rn = ?2", entreprise.nif, invoice.rn).firstResult();
+                if (existingInvoice != null && "CONFIRMED".equals(existingInvoice.status)) {
+                    invoices.set(i, existingInvoice);
                     continue;
                 }
                 calculateInvoiceAmounts(invoice);
@@ -606,9 +601,15 @@ public class InvoiceResource {
             workbook.close();
             List<InvoiceEntity> invoices = new ArrayList<>(invoiceByRn.values());
             int rejectedCount = 0;
-            for (InvoiceEntity invoice : invoices) {
+            for (int i = 0; i < invoices.size(); i++) {
+                InvoiceEntity invoice = invoices.get(i);
                 if (isRejectedForNormalization(invoice)) {
                     rejectedCount++;
+                    continue;
+                }
+                InvoiceEntity existingInvoice = InvoiceEntity.find("nif = ?1 and rn = ?2", entreprise.nif, invoice.rn).firstResult();
+                if (existingInvoice != null && "CONFIRMED".equals(existingInvoice.status)) {
+                    invoices.set(i, existingInvoice);
                     continue;
                 }
                 calculateInvoiceAmounts(invoice);
@@ -649,6 +650,47 @@ public class InvoiceResource {
             throw new InvalidExcelFileException();
         }
         return new XSSFWorkbook(new ByteArrayInputStream(data));
+    }
+
+    private Map<String, Object> toBatchInvoiceResult(InvoiceEntity invoice, Entreprise entreprise) {
+        Map<String, Object> result = new HashMap<>();
+        if (invoice == null) {
+            return result;
+        }
+
+        result.put("invoiceNumber", invoice.rn);
+        result.put("rn", invoice.rn);
+        result.put("status", invoice.status);
+        result.put("uid", invoice.uid);
+        result.put("total", invoice.total);
+        result.put("curTotal", invoice.curTotal);
+        result.put("vtotal", invoice.vtotal);
+        result.put("errorCode", invoice.errorCode);
+        result.put("errorDesc", invoice.errorDesc);
+        result.put("dateTime", invoice.dateTime);
+        result.put("qrCode", invoice.qrCode);
+        result.put("codeDEFDGI", invoice.codeDEFDGI);
+        result.put("counters", invoice.counters);
+        result.put("nim", invoice.nim);
+        result.put("companyName", firstNonBlank(invoice.companyName, entreprise != null ? entreprise.nom : null));
+        result.put("companyNif", firstNonBlank(invoice.nif, entreprise != null ? entreprise.nif : null));
+        result.put("companyRccm", entreprise != null ? entreprise.rccm : null);
+        result.put("companyAddress", entreprise != null ? entreprise.adresse : null);
+        result.put("companyPhone", entreprise != null ? entreprise.telephone : null);
+        result.put("companyEmail", firstNonBlank(invoice.email, entreprise != null ? entreprise.email : null));
+        result.put("storeName", entreprise != null ? firstNonBlank(entreprise.nomMagasin, entreprise.nom) : null);
+        result.put("isf", firstNonBlank(invoice.isf, entreprise != null ? entreprise.isf : null));
+
+        if (invoice.operator != null) {
+            result.put("operatorName", invoice.operator.name);
+        }
+        if (invoice.payments != null && !invoice.payments.isEmpty()) {
+            InvoiceEntity.Payment payment = invoice.payments.get(0);
+            result.put("paymentName", payment.name);
+            result.put("paymentAmount", payment.amount != null ? payment.amount : invoice.total);
+        }
+
+        return result;
     }
 
     private boolean isXlsxFileName(String fileName) {
