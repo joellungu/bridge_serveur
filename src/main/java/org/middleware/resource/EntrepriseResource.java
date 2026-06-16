@@ -51,6 +51,8 @@ public class EntrepriseResource {
         public String email;
         public String nom;
         public String nif;
+        public String idNat;
+        public String numeroImpot;
         public String rccm;
         public String adresse;
         public String telephone;
@@ -170,6 +172,8 @@ public class EntrepriseResource {
         Entreprise user = new Entreprise();
         user.role = dto.role;
         user.nif = dto.nif;
+        user.idNat = dto.idNat;
+        user.numeroImpot = dto.numeroImpot;
         user.rccm = dto.rccm;
         user.adresse = dto.adresse;
         user.telephone = dto.telephone;
@@ -202,6 +206,8 @@ public class EntrepriseResource {
         user.email = dto.email != null ? dto.email : user.email;
         user.role = dto.role;
         user.nif = dto.nif;
+        user.idNat = dto.idNat;
+        user.numeroImpot = dto.numeroImpot;
         user.rccm = dto.rccm;
         user.adresse = dto.adresse;
         user.telephone = dto.telephone;
@@ -260,6 +266,8 @@ public class EntrepriseResource {
         user.put("email", entreprise.email);
         user.put("nom", entreprise.nom);
         user.put("nif", entreprise.nif);
+        user.put("idNat", entreprise.idNat);
+        user.put("numeroImpot", entreprise.numeroImpot);
         user.put("rccm", entreprise.rccm);
         user.put("adresse", entreprise.adresse);
         user.put("telephone", entreprise.telephone);

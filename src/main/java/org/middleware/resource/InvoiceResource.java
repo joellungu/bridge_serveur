@@ -1403,6 +1403,8 @@ public class InvoiceResource {
         public String nim;
         public String companyName;
         public String companyNif;
+        public String companyIdNat;
+        public String companyNumeroImpot;
         public String companyRccm;
         public String companyAddress;
         public String companyPhone;
@@ -1429,6 +1431,8 @@ public class InvoiceResource {
             this.nim = invoice.nim;
             this.companyName = firstNonBlank(invoice.companyName, entreprise != null ? entreprise.nom : null);
             this.companyNif = firstNonBlank(invoice.nif, entreprise != null ? entreprise.nif : null);
+            this.companyIdNat = entreprise != null ? entreprise.idNat : null;
+            this.companyNumeroImpot = entreprise != null ? entreprise.numeroImpot : null;
             this.companyRccm = entreprise != null ? entreprise.rccm : null;
             this.companyAddress = entreprise != null ? entreprise.adresse : null;
             this.companyPhone = entreprise != null ? entreprise.telephone : null;
