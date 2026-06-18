@@ -1,4 +1,4 @@
-﻿package org.middleware.resource;
+package org.middleware.resource;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
