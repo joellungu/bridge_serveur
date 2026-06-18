@@ -1,4 +1,4 @@
-package org.middleware.resource;
+﻿package org.middleware.resource;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -728,7 +728,7 @@ public class InvoiceResource {
         if (isEmptyCell(row.getCell(base + 16))) return "MODE manquant - ht ou ttc";
 
         String type = getStringCellValue(row.getCell(base + 1));
-        if (type != null && !Arrays.asList("FV", "EV", "FT", "FA", "EA", "ET").contains(type.toUpperCase())) {
+        if (type != null && !Arrays.asList("FV", "EV", "FT", "FA", "EA", "ET").contains(type.toUpperCase())) { 
             return "TYPE invalide. Doit etre: FV, EV, FT, FA, EA ou ET";
         }
 
@@ -759,9 +759,9 @@ public class InvoiceResource {
         }
 
         String taxGroup = getStringCellValue(row.getCell(base + 9));
-        List<String> validTaxGroups = Arrays.asList("A", "B", "E", "X");
+        List<String> validTaxGroups = Arrays.asList("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P");
         if (taxGroup != null && !validTaxGroups.contains(taxGroup.toUpperCase())) {
-            return "ITEM_TAX_GROUP invalide. Doit etre: A (19%), B (13%), E (7%) ou X (Exonere)";
+            return "ITEM_TAX_GROUP invalide. Doit etre: A (19%), B (13%), E (7%) ou X (Exonere) lisez la doc.";
         }
 
         Cell priceCell = row.getCell(base + 7);
