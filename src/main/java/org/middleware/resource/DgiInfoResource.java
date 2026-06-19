@@ -71,7 +71,7 @@ public class DgiInfoResource {
             }
 
             DgiService dgiService = CDI.current().select(DgiService.class).get();
-            JsonNode dgiInfo = dgiService.getInfo(endpoint, dgiToken);
+            JsonNode dgiInfo = dgiService.getInfo(endpoint, dgiToken, entreprise.email);
             return Response.ok(dgiInfo).build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)

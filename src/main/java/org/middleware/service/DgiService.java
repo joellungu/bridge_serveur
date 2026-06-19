@@ -19,7 +19,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -32,11 +35,20 @@ public class DgiService {
     private final HttpClient client = HttpClient.newHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
 
-    @ConfigProperty(name = "dgi.api.invoice.url")
-    String invoiceApiUrl;
+    @ConfigProperty(name = "dgi.api.invoice.test")
+    String invoiceApiTestUrl;
 
-    @ConfigProperty(name = "dgi.api.info.url")
-    String infoApiUrl;
+    @ConfigProperty(name = "dgi.api.invoice.prod")
+    String invoiceApiProdUrl;
+
+    @ConfigProperty(name = "dgi.api.info.test")
+    String infoApiTestUrl;
+
+    @ConfigProperty(name = "dgi.api.info.prod")
+    String infoApiProdUrl;
+
+    @ConfigProperty(name = "dgi.api.test-company-emails")
+    String testCompanyEmails;
 
     public DgiService() {
         mapper.registerModule(new JavaTimeModule());
@@ -212,8 +224,11 @@ public class DgiService {
         
         LOG.fine("Payload soumission: " + jsonPayload.substring(0, Math.min(100, jsonPayload.length())) + "...");
         
+        String targetInvoiceUrl = resolveInvoiceApiUrl(invoice);
+        LOG.info("URL DGI facture selectionnee pour " + invoice.email + ": " + targetInvoiceUrl);
+
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(invoiceApiUrl))
+                .uri(URI.create(targetInvoiceUrl))
                 .timeout(Duration.ofSeconds(DGI_TIMEOUT_SECONDS))
                 .header("Accept", "application/json")
                 .header("Content-Type", "application/json")
@@ -244,7 +259,7 @@ public class DgiService {
         
         LOG.fine("Payload confirmation: " + jsonPayload);
         
-        String confirmUrl = invoiceApiUrl + "/" + invoice.uid + "/confirm";
+        String confirmUrl = resolveInvoiceApiUrl(invoice) + "/" + invoice.uid + "/confirm";
         LOG.info("URL de confirmation: " + confirmUrl);
         
         HttpRequest request = HttpRequest.newBuilder()
@@ -269,13 +284,20 @@ public class DgiService {
     }
 
     public JsonNode getInfo(String endpoint, String dgiToken) throws IOException, InterruptedException {
+        return getInfo(endpoint, dgiToken, null);
+    }
+
+    public JsonNode getInfo(String endpoint, String dgiToken, String companyEmail) throws IOException, InterruptedException {
         String cleanEndpoint = endpoint == null ? "" : endpoint.trim();
         if (cleanEndpoint.isBlank() || cleanEndpoint.contains("..") || cleanEndpoint.contains("/") || cleanEndpoint.contains("\\")) {
             throw new IllegalArgumentException("Endpoint d'information DGI invalide");
         }
 
+        String targetInfoUrl = resolveInfoApiUrl(companyEmail);
+        LOG.info("URL DGI info selectionnee pour " + companyEmail + ": " + targetInfoUrl);
+
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(infoApiUrl + "/" + cleanEndpoint))
+                .uri(URI.create(targetInfoUrl + "/" + cleanEndpoint))
                 .timeout(Duration.ofSeconds(DGI_TIMEOUT_SECONDS))
                 .header("Accept", "application/json")
                 .header("Authorization", "Bearer " + dgiToken)
@@ -285,6 +307,27 @@ public class DgiService {
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
         LOG.info("[INFO " + cleanEndpoint + " Response] HTTP " + response.statusCode());
         return parseDgiResponse(response);
+    }
+
+    private String resolveInvoiceApiUrl(InvoiceEntity invoice) {
+        String email = invoice != null ? invoice.email : null;
+        return isTestCompany(email) ? invoiceApiTestUrl : invoiceApiProdUrl;
+    }
+
+    private String resolveInfoApiUrl(String companyEmail) {
+        return isTestCompany(companyEmail) ? infoApiTestUrl : infoApiProdUrl;
+    }
+
+    private boolean isTestCompany(String email) {
+        if (email == null || email.isBlank()) {
+            return false;
+        }
+        String normalizedEmail = email.trim().toLowerCase();
+        Set<String> testEmails = Arrays.stream(testCompanyEmails == null ? new String[0] : testCompanyEmails.split(","))
+                .map(value -> value.trim().toLowerCase())
+                .filter(value -> !value.isBlank())
+                .collect(Collectors.toSet());
+        return testEmails.contains(normalizedEmail);
     }
 
     private JsonNode parseDgiResponse(HttpResponse<String> response) throws IOException {
