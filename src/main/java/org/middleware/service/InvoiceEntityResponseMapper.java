@@ -47,7 +47,7 @@ public class InvoiceEntityResponseMapper {
             // ⏳ Phase 1 complétée, en attente de Phase 2
             response.put("success", true);
             response.put("message", "⏳ Facture soumise avec succès. En attente de confirmation.");
-            
+
             Map<String, Object> submissionData = new HashMap<>();
             submissionData.put("uid", invoice.uid);
             submissionData.put("total", invoice.total);
@@ -55,12 +55,20 @@ public class InvoiceEntityResponseMapper {
             submissionData.put("vtotal", invoice.vtotal);
             submissionData.put("status", "PHASE1");
             response.put("submission", submissionData);
-            
+
             Map<String, Object> nextStep = new HashMap<>();
             nextStep.put("phase", "2");
             nextStep.put("action", "Confirmation de la facture");
             nextStep.put("uid", invoice.uid);
             response.put("nextStep", nextStep);
+
+            if (invoice.errorCode != null || invoice.errorDesc != null) {
+                Map<String, Object> errorData = new HashMap<>();
+                errorData.put("code", invoice.errorCode);
+                errorData.put("description", invoice.errorDesc);
+                errorData.put("status", "PHASE1");
+                response.put("error", errorData);
+            }
             
         } else if (invoice.errorCode != null || invoice.errorDesc != null) {
             // ❌ Erreur détectée
