@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.UUID;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import io.quarkus.panache.common.Sort;
 import io.quarkus.runtime.annotations.RegisterForReflection;
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
@@ -304,5 +305,34 @@ public class InvoiceEntity extends PanacheEntityBase {
 
     public static List<InvoiceEntity> findByTypeAndDateRange(String type, LocalDateTime start, LocalDateTime end) {
         return list("type = ?1 and createdAt between ?2 and ?3", type, start, end);
+    }
+
+    // === RECHERCHES PAR NUMÉRO DE FACTURE (RN) ===
+    // Un même RN peut avoir plusieurs enregistrements (un par tentative d'envoi).
+    // Les identifiants étant des UUID, l'ordre « naturel » est aléatoire :
+    // il faut toujours filtrer sur le statut ou trier explicitement.
+
+    /** Délai pendant lequel une tentative non terminée est considérée « en cours ». */
+    public static final int MINUTES_EN_COURS = 3;
+
+    /** Facture déjà normalisée par la DGI pour ce RN, s'il y en a une. */
+    public static InvoiceEntity findConfirmed(String nif, String rn) {
+        return find("nif = ?1 and rn = ?2 and status = ?3",
+                Sort.descending("createdAt"), nif, rn, "CONFIRMED").firstResult();
+    }
+
+    /**
+     * Tentative encore en cours de traitement (demande envoyée à la DGI, pas
+     * encore confirmée ni en erreur), créée il y a moins de {@link #MINUTES_EN_COURS} minutes.
+     */
+    public static InvoiceEntity findInFlight(String nif, String rn) {
+        return find("nif = ?1 and rn = ?2 and status in ?3 and errorCode is null and errorDesc is null and createdAt > ?4",
+                Sort.descending("createdAt"), nif, rn, List.of("PENDING", "PHASE1"),
+                LocalDateTime.now().minusMinutes(MINUTES_EN_COURS)).firstResult();
+    }
+
+    /** Dernière tentative enregistrée pour ce RN (tous statuts confondus). */
+    public static InvoiceEntity findLatest(String nif, String rn) {
+        return find("nif = ?1 and rn = ?2", Sort.descending("createdAt"), nif, rn).firstResult();
     }
 }

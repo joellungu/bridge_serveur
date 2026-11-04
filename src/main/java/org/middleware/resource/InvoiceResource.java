@@ -33,6 +33,7 @@ import org.middleware.models.Entreprise;
 import org.middleware.models.InvoiceEntity;
 import org.middleware.service.DgiService;
 import org.middleware.service.InvoiceEntityResponseMapper;
+import org.middleware.service.InvoiceNormalizationService;
 import org.middleware.service.InvoiceValidator;
 
 import jakarta.annotation.security.PermitAll;
@@ -75,6 +76,9 @@ public class InvoiceResource {
 
     @Inject
     InvoiceValidator invoiceValidator;
+
+    @Inject
+    InvoiceNormalizationService normalisationService;
 
     @GET
     @Path("test")
@@ -153,8 +157,11 @@ public class InvoiceResource {
                         .build();
             }
 
-            // 3. Verifier si la facture existe deja
-            InvoiceEntity existingInvoice = InvoiceEntity.find("nif = ?1 and rn = ?2", entreprise.nif, invoice.rn).firstResult();
+            // 3. Verifier si la facture existe deja (confirmee d'abord, sinon la plus recente)
+            InvoiceEntity existingInvoice = InvoiceEntity.findConfirmed(entreprise.nif, invoice.rn);
+            if (existingInvoice == null) {
+                existingInvoice = InvoiceEntity.findLatest(entreprise.nif, invoice.rn);
+            }
 
             InvoiceEntity invoiceToProcess;
             if (existingInvoice == null) {
@@ -266,8 +273,11 @@ public class InvoiceResource {
 
                     LOG.info("Traitement facture lot: " + invoice.rn);
 
-                    // Verifier si la facture existe deja
-                    InvoiceEntity existingInvoice = InvoiceEntity.find("nif = ?1 and rn = ?2", entreprise.nif, invoice.rn).firstResult();
+                    // Verifier si la facture existe deja (confirmee d'abord, sinon la plus recente)
+                    InvoiceEntity existingInvoice = InvoiceEntity.findConfirmed(entreprise.nif, invoice.rn);
+                    if (existingInvoice == null) {
+                        existingInvoice = InvoiceEntity.findLatest(entreprise.nif, invoice.rn);
+                    }
 
                     InvoiceEntity invoiceToProcess;
                     if (existingInvoice == null) {
@@ -403,7 +413,6 @@ public class InvoiceResource {
     @POST
     @Path("/upload-excel")
     @RolesAllowed({"ADMIN", "USER", "admin"})
-    @Transactional
     @Consumes(MediaType.APPLICATION_OCTET_STREAM)
     @Operation(summary = "Importer un fichier Excel de factures et les soumettre à la DGI")
     public Response uploadExcelInvoices(byte[] data) {
@@ -423,6 +432,7 @@ public class InvoiceResource {
             Sheet sheet = workbook.getSheetAt(0); // Première feuille
 
             Map<String, InvoiceEntity> invoiceByRn = new LinkedHashMap<>();
+            Map<String, List<Integer>> lignesInvalidesParRn = new LinkedHashMap<>();
             List<String> errors = new ArrayList<>();
 
             // Parcourir les lignes (en sautant l'en-tête)
@@ -440,6 +450,7 @@ public class InvoiceResource {
                     String validationError = validateRow(row);
                     if (validationError != null) {
                         errors.add("Ligne " + rowNum + ": " + validationError);
+                        noterLigneInvalide(lignesInvalidesParRn, row, rowNum);
                         rowNum++;
                         continue;
                     }
@@ -460,6 +471,7 @@ public class InvoiceResource {
 
                 } catch (Exception e) {
                     errors.add("Ligne " + rowNum + ": " + e.getMessage());
+                    noterLigneInvalide(lignesInvalidesParRn, row, rowNum);
                     e.printStackTrace(); // Pour le débogage
                 }
                 rowNum++;
@@ -467,22 +479,7 @@ public class InvoiceResource {
 
             workbook.close();
             List<InvoiceEntity> invoices = new ArrayList<>(invoiceByRn.values());
-            int rejectedCount = 0;
-            for (int i = 0; i < invoices.size(); i++) {
-                InvoiceEntity invoice = invoices.get(i);
-                if (isRejectedForNormalization(invoice)) {
-                    rejectedCount++;
-                    continue;
-                }
-                InvoiceEntity existingInvoice = InvoiceEntity.find("nif = ?1 and rn = ?2", entreprise.nif, invoice.rn).firstResult();
-                if (existingInvoice != null && "CONFIRMED".equals(existingInvoice.status)) {
-                    invoices.set(i, existingInvoice);
-                    continue;
-                }
-                calculateInvoiceAmounts(invoice);
-                invoice.persist();
-                sendToDGINormalization(invoice, entreprise.dgiToken);
-            }
+            int rejectedCount = normaliserFactures(invoices, entreprise, lignesInvalidesParRn);
             int successCount = invoices.size() - rejectedCount;
 
             // Préparer la réponse
@@ -521,7 +518,6 @@ public class InvoiceResource {
     @Path("/upload-file")
     @Consumes(MediaType.MULTIPART_FORM_DATA)
     @RolesAllowed({"ADMIN", "USER"})
-    @Transactional
     @Operation(summary = "Importer un fichier Excel de factures via formulaire multipart et les soumettre à la DGI")
     public Response uploadFile(@FormParam("file") FileUpload file) {
         try {
@@ -556,6 +552,7 @@ public class InvoiceResource {
             Sheet sheet = workbook.getSheetAt(0); // Première feuille
 
             Map<String, InvoiceEntity> invoiceByRn = new LinkedHashMap<>();
+            Map<String, List<Integer>> lignesInvalidesParRn = new LinkedHashMap<>();
             List<String> errors = new ArrayList<>();
 
             // Parcourir les lignes (en sautant l'en-tête)
@@ -573,6 +570,7 @@ public class InvoiceResource {
                     String validationError = validateRow(row);
                     if (validationError != null) {
                         errors.add("Ligne " + rowNum + ": " + validationError);
+                        noterLigneInvalide(lignesInvalidesParRn, row, rowNum);
                         rowNum++;
                         continue;
                     }
@@ -593,6 +591,7 @@ public class InvoiceResource {
 
                 } catch (Exception e) {
                     errors.add("Ligne " + rowNum + ": " + e.getMessage());
+                    noterLigneInvalide(lignesInvalidesParRn, row, rowNum);
                     LOG.log(Level.WARNING, "Erreur traitement ligne " + rowNum, e);
                 }
                 rowNum++;
@@ -600,22 +599,7 @@ public class InvoiceResource {
 
             workbook.close();
             List<InvoiceEntity> invoices = new ArrayList<>(invoiceByRn.values());
-            int rejectedCount = 0;
-            for (int i = 0; i < invoices.size(); i++) {
-                InvoiceEntity invoice = invoices.get(i);
-                if (isRejectedForNormalization(invoice)) {
-                    rejectedCount++;
-                    continue;
-                }
-                InvoiceEntity existingInvoice = InvoiceEntity.find("nif = ?1 and rn = ?2", entreprise.nif, invoice.rn).firstResult();
-                if (existingInvoice != null && "CONFIRMED".equals(existingInvoice.status)) {
-                    invoices.set(i, existingInvoice);
-                    continue;
-                }
-                calculateInvoiceAmounts(invoice);
-                invoice.persist();
-                sendToDGINormalization(invoice, entreprise.dgiToken);
-            }
+            int rejectedCount = normaliserFactures(invoices, entreprise, lignesInvalidesParRn);
             int successCount = invoices.size() - rejectedCount;
 
             // Préparer la réponse
@@ -974,7 +958,8 @@ public class InvoiceResource {
     }
 
     private boolean isRejectedForNormalization(InvoiceEntity invoice) {
-        return invoice != null && "OWNER_MISMATCH".equals(invoice.errorCode);
+        return invoice != null
+                && ("OWNER_MISMATCH".equals(invoice.errorCode) || "LIGNE_INVALIDE".equals(invoice.errorCode));
     }
 
     private boolean hasText(String value) {
@@ -1178,18 +1163,49 @@ public class InvoiceResource {
         invoice.vtotal = invoice.total;
     }
 
-    private void sendToDGINormalization(InvoiceEntity invoice, String token) {
+    /**
+     * Envoie à la DGI les factures lues dans un fichier, une transaction par
+     * facture (voir {@link InvoiceNormalizationService}).
+     *
+     * <p>Une facture dont au moins une ligne a été refusée n'est pas envoyée :
+     * sinon la DGI normaliserait une facture à laquelle il manque un article
+     * (une ligne = un produit ou service ; même RN = même facture).</p>
+     *
+     * @return nombre de factures non envoyées (rejetées avant la DGI)
+     */
+    private int normaliserFactures(List<InvoiceEntity> invoices, Entreprise entreprise,
+            Map<String, List<Integer>> lignesInvalidesParRn) {
+        int rejectedCount = 0;
+        for (int i = 0; i < invoices.size(); i++) {
+            InvoiceEntity invoice = invoices.get(i);
+            List<Integer> lignesInvalides = lignesInvalidesParRn.get(invoice.rn);
+            if (lignesInvalides != null && !isRejectedForNormalization(invoice)) {
+                invoice.status = "REJECTED";
+                invoice.errorCode = "LIGNE_INVALIDE";
+                invoice.errorDesc = "Facture non envoyee a la DGI : ligne(s) "
+                        + lignesInvalides.stream().map(String::valueOf)
+                                .collect(java.util.stream.Collectors.joining(", "))
+                        + " invalide(s). Une facture n'est envoyee que complete (toutes ses lignes).";
+            }
+            if (isRejectedForNormalization(invoice)) {
+                rejectedCount++;
+                continue;
+            }
+            calculateInvoiceAmounts(invoice);
+            invoices.set(i, normalisationService.normaliser(invoice, entreprise.nif, entreprise.dgiToken));
+        }
+        return rejectedCount;
+    }
+
+    /** Mémorise le RN d'une ligne refusée pour ne pas envoyer sa facture incomplète. */
+    private void noterLigneInvalide(Map<String, List<Integer>> lignesInvalidesParRn, Row row, int rowNum) {
         try {
-            // Créer le DTO pour l'API DGI
-            DGIFactureDTO dgiFacture = mapToDGIDTO(invoice);
-
-            DgiService dgiService = CDI.current().select(DgiService.class).get();
-            dgiService.submitInvoice(invoice, token);
-
-        } catch (Exception e) {
-            invoice.status = "ERROR";
-            invoice.errorDesc = "Exception lors de l'envoi à la DGI: " + e.getMessage();
-            invoice.persist();
+            String rn = getStringCellValue(row.getCell(getInvoiceExcelBaseColumn(row)));
+            if (rn != null && !rn.isBlank()) {
+                lignesInvalidesParRn.computeIfAbsent(rn.trim(), k -> new ArrayList<>()).add(rowNum);
+            }
+        } catch (Exception ignored) {
+            // RN illisible : la ligne n'appartient à aucune facture.
         }
     }
 

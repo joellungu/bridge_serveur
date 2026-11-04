@@ -50,6 +50,14 @@ public class DgiService {
     @ConfigProperty(name = "dgi.api.test-company-emails")
     String testCompanyEmails;
 
+    /** Comparer les totaux DGI au calcul SFE avant de confirmer (protocole e-MCF). */
+    @ConfigProperty(name = "dgi.totals.check", defaultValue = "true")
+    boolean totalsCheckEnabled;
+
+    /** Écart toléré entre les totaux DGI et SFE (arrondis). */
+    @ConfigProperty(name = "dgi.totals.tolerance", defaultValue = "1.00")
+    BigDecimal totalsTolerance;
+
     public DgiService() {
         mapper.registerModule(new JavaTimeModule());
         mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
@@ -146,6 +154,22 @@ public class DgiService {
                 LOG.warning("UID manquant pour la confirmation");
                 invoice.errorCode = "MISSING_UID";
                 invoice.errorDesc = "L'UID de soumission est manquant. Veuillez compléter PHASE 1";
+                invoice.persist();
+                return invoice;
+            }
+
+            // Contrôle exigé par le protocole e-MCF : le SFE compare les totaux
+            // calculés par la DGI avec son propre calcul et annule la demande
+            // en cas d'écart, au lieu de normaliser une facture fausse.
+            String ecart = totalsCheckEnabled
+                    ? DgiTotalsCalculator.ecart(invoice, invoice.total, invoice.vtotal, totalsTolerance)
+                    : null;
+            if (ecart != null) {
+                LOG.warning("Ecart de totaux pour RN=" + invoice.rn + " : " + ecart);
+                cancelInvoiceWithDgi(invoice, dgiToken);
+                invoice.status = "CANCELLED";
+                invoice.errorCode = "ECART_TOTAUX";
+                invoice.errorDesc = ecart;
                 invoice.persist();
                 return invoice;
             }
@@ -277,6 +301,29 @@ public class DgiService {
         LOG.fine("Response body: " + response.body());
 
         return parseDgiResponse(response);
+    }
+
+    /**
+     * Annule une demande de facture en attente (action CANCEL du protocole
+     * e-MCF). Aucun élément de sécurité n'est émis pour cette demande.
+     */
+    private void cancelInvoiceWithDgi(InvoiceEntity invoice, String dgiToken) {
+        try {
+            String cancelUrl = resolveInvoiceApiUrl(invoice) + "/" + invoice.uid + "/cancel";
+            LOG.info("URL d'annulation: " + cancelUrl);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(cancelUrl))
+                    .timeout(Duration.ofSeconds(DGI_TIMEOUT_SECONDS))
+                    .header("Accept", "application/json")
+                    .header("Authorization", "Bearer " + dgiToken)
+                    .PUT(HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            LOG.info("[CANCEL Response] HTTP " + response.statusCode());
+        } catch (Exception e) {
+            // La demande expirera d'elle-même après 2 minutes côté e-MCF.
+            LOG.log(Level.WARNING, "Annulation DGI impossible pour UID=" + invoice.uid + ": " + e.getMessage(), e);
+        }
     }
 
     public JsonNode getInfoStatus(String dgiToken) throws IOException, InterruptedException {
